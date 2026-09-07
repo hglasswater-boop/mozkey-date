@@ -806,6 +806,23 @@
               </property>
              </widget>
             </item>
+            <item row="5" column="0">
+   <widget class="QLabel" name="dateConversionFormatLabel">
+    <property name="text">
+     <string>Date output format</string>
+    </property>
+   </widget>
+  </item>
+  <item row="5" column="1">
+   <widget class="QLineEdit" name="dateConversionFormatLineEdit">
+    <property name="toolTip">
+     <string>Preferred date candidate format. Available placeholders: {YEAR}, {MONTH}, {DATE}. Example: {YEAR}-{MONTH}-{DATE}</string>
+    </property>
+    <property name="placeholderText">
+     <string>{YEAR}/{MONTH}/{DATE}</string>
+    </property>
+   </widget>
+  </item>
             <item row="0" column="1">
              <widget class="QCheckBox" name="emojiConversionCheckBox">
               <property name="text">

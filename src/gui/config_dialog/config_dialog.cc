@@ -34,6 +34,7 @@
 #include <QAbstractScrollArea>
 #include <QAbstractSpinBox>
 #include <QByteArray>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDialog>
@@ -372,6 +373,12 @@ ConfigDialog::ConfigDialog()
   zenzLiveCorrectionMinKeyLengthSpinBox->setRange(2, 20);
   zenzLiveCorrectionMinKeyLengthSpinBox->setSingleStep(1);
   zenzLiveCorrectionMinKeyLengthSpinBox->setSuffix(QString::fromUtf8(" 文字"));
+
+  dateConversionFormatLineEdit->setMaxLength(128);
+  QObject::connect(dateConversionCheckBox, &QCheckBox::toggled,
+                   dateConversionFormatLabel, &QWidget::setEnabled);
+  QObject::connect(dateConversionCheckBox, &QCheckBox::toggled,
+                   dateConversionFormatLineEdit, &QWidget::setEnabled);
 
   zenzLiveCorrectionProfileLineEdit->setMaxLength(128);
   zenzLiveCorrectionTopicLineEdit->setMaxLength(128);
@@ -2947,6 +2954,10 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
   SET_CHECKBOX(symbolConversionCheckBox, use_symbol_conversion);
   SET_CHECKBOX(emoticonConversionCheckBox, use_emoticon_conversion);
   SET_CHECKBOX(dateConversionCheckBox, use_date_conversion);
+  dateConversionFormatLineEdit->setText(
+      ToQString(config.date_conversion_custom_format()));
+  dateConversionFormatLabel->setEnabled(config.use_date_conversion());
+  dateConversionFormatLineEdit->setEnabled(config.use_date_conversion());
   SET_CHECKBOX(emojiConversionCheckBox, use_emoji_conversion);
   SET_CHECKBOX(numberConversionCheckBox, use_number_conversion);
   SET_CHECKBOX(calculatorCheckBox, use_calculator);
@@ -3198,6 +3209,8 @@ void ConfigDialog::ConvertToProto(config::Config *config) const {
   GET_CHECKBOX(symbolConversionCheckBox, use_symbol_conversion);
   GET_CHECKBOX(emoticonConversionCheckBox, use_emoticon_conversion);
   GET_CHECKBOX(dateConversionCheckBox, use_date_conversion);
+  config->set_date_conversion_custom_format(
+      dateConversionFormatLineEdit->text().trimmed().toUtf8().constData());
   GET_CHECKBOX(emojiConversionCheckBox, use_emoji_conversion);
   GET_CHECKBOX(numberConversionCheckBox, use_number_conversion);
   GET_CHECKBOX(calculatorCheckBox, use_calculator);
