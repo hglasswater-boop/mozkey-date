@@ -30,6 +30,7 @@
 #include "gui/about_dialog/about_dialog.h"
 
 #include <QtGui>
+#include <QProcess>
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -68,8 +69,10 @@ QString ReplaceString(const QString &str) {
           "https://support.google.com/gboard/community?hl=ja");
   Replace(replaced, "[ForumName]", QObject::tr("product forum"));
 #else  // GOOGLE_JAPANESE_INPUT_BUILD
-  Replace(replaced, "[ProductUrl]", "https://github.com/koyasi777/mozkey");
-  Replace(replaced, "[ForumUrl]", "https://github.com/koyasi777/mozkey/issues");
+  Replace(replaced, "[ProductUrl]",
+          "https://github.com/hglasswater-boop/mozkey-date");
+  Replace(replaced, "[ForumUrl]",
+          "https://github.com/hglasswater-boop/mozkey-date/issues");
   Replace(replaced, "[ForumName]", QObject::tr("issues"));
 #endif  // GOOGLE_JAPANESE_INPUT_BUILD
 
@@ -124,6 +127,149 @@ AboutDialog::AboutDialog(QWidget *parent)
 
   SetLabelText(label_terms);
   SetLabelText(label_credits);
+
+#ifdef _WIN32
+  updateButton->setEnabled(false);
+
+  QObject::connect(checkUpdateButton, &QPushButton::clicked, this, [this]() {
+    checkUpdateButton->setEnabled(false);
+    updateButton->setEnabled(false);
+    updateStatusLabel->setToolTip(QString());
+    updateStatusLabel->setText(QString::fromUtf8("更新を確認しています..."));
+
+    auto *process = new QProcess(this);
+    const QString command = QStringLiteral(
+        "$ErrorActionPreference='Stop';"
+        "$ProgressPreference='SilentlyContinue';"
+        "$headers=@{'User-Agent'='mozkey-date-about';"
+        "'Accept'='application/vnd.github+json'};"
+        "$release=Invoke-RestMethod -Headers $headers -Uri "
+        "'https://api.github.com/repos/hglasswater-boop/mozkey-date/releases/latest';"
+        "$state=Join-Path $env:LOCALAPPDATA "
+        "'MozkeyDate\\last-installed-release.txt';"
+        "$installed='';"
+        "if(Test-Path -LiteralPath $state){"
+        "$installed=(Get-Content -LiteralPath $state -Raw).Trim()};"
+        "[Console]::Out.Write(([string]$release.tag_name) + \"`n\" + "
+        "$installed);");
+
+    QObject::connect(
+        process,
+        static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(
+            &QProcess::finished),
+        this,
+        [this, process](int exit_code, QProcess::ExitStatus exit_status) {
+          checkUpdateButton->setEnabled(true);
+          const QString stderr_text =
+              QString::fromUtf8(process->readAllStandardError()).trimmed();
+          if (exit_status != QProcess::NormalExit || exit_code != 0) {
+            updateStatusLabel->setText(
+                QString::fromUtf8("更新確認に失敗しました。"));
+            updateStatusLabel->setToolTip(stderr_text);
+            process->deleteLater();
+            return;
+          }
+
+          const QString output =
+              QString::fromUtf8(process->readAllStandardOutput()).trimmed();
+          const QStringList lines =
+              output.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+          const QString latest = lines.value(0).trimmed();
+          const QString installed = lines.value(1).trimmed();
+          if (latest.isEmpty()) {
+            updateStatusLabel->setText(
+                QString::fromUtf8("最新バージョンを取得できませんでした。"));
+            process->deleteLater();
+            return;
+          }
+
+          if (!installed.isEmpty() && installed == latest) {
+            updateStatusLabel->setText(
+                QString::fromUtf8("最新版です（%1）").arg(latest));
+            updateButton->setEnabled(false);
+          } else if (!installed.isEmpty()) {
+            updateStatusLabel->setText(
+                QString::fromUtf8("更新があります: %1 → %2")
+                    .arg(installed, latest));
+            updateButton->setEnabled(true);
+          } else {
+            updateStatusLabel->setText(
+                QString::fromUtf8("最新リリース: %1").arg(latest));
+            updateButton->setEnabled(true);
+          }
+          process->deleteLater();
+        });
+
+    process->start(
+        QStringLiteral("powershell.exe"),
+        QStringList{QStringLiteral("-NoProfile"),
+                    QStringLiteral("-NonInteractive"),
+                    QStringLiteral("-ExecutionPolicy"),
+                    QStringLiteral("Bypass"), QStringLiteral("-Command"),
+                    command});
+  });
+
+  QObject::connect(updateButton, &QPushButton::clicked, this, [this]() {
+    checkUpdateButton->setEnabled(false);
+    updateButton->setEnabled(false);
+    updateStatusLabel->setToolTip(QString());
+    updateStatusLabel->setText(
+        QString::fromUtf8("更新ツールを準備しています..."));
+
+    auto *process = new QProcess(this);
+    const QString command = QStringLiteral(
+        "$ErrorActionPreference='Stop';"
+        "$ProgressPreference='SilentlyContinue';"
+        "$headers=@{'User-Agent'='mozkey-date-about';"
+        "'Accept'='application/vnd.github+json'};"
+        "$release=Invoke-RestMethod -Headers $headers -Uri "
+        "'https://api.github.com/repos/hglasswater-boop/mozkey-date/releases/latest';"
+        "$asset=$release.assets | Where-Object {"
+        "$_.name -eq 'update-mozkey-date.ps1'} | Select-Object -First 1;"
+        "if($null -eq $asset){throw 'update-mozkey-date.ps1 is missing'};"
+        "$path=Join-Path $env:TEMP ('mozkey-date-updater-' + "
+        "[Guid]::NewGuid().ToString('N') + '.ps1');"
+        "Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url "
+        "-OutFile $path;"
+        "$quoted='\"' + $path + '\"';"
+        "Start-Process -FilePath 'powershell.exe' -ArgumentList "
+        "@('-NoProfile','-ExecutionPolicy','Bypass','-File',$quoted);");
+
+    QObject::connect(
+        process,
+        static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(
+            &QProcess::finished),
+        this,
+        [this, process](int exit_code, QProcess::ExitStatus exit_status) {
+          checkUpdateButton->setEnabled(true);
+          const QString stderr_text =
+              QString::fromUtf8(process->readAllStandardError()).trimmed();
+          if (exit_status == QProcess::NormalExit && exit_code == 0) {
+            updateStatusLabel->setText(QString::fromUtf8(
+                "更新ツールを起動しました。画面の案内に従ってください。"));
+          } else {
+            updateStatusLabel->setText(
+                QString::fromUtf8("更新ツールを起動できませんでした。"));
+            updateStatusLabel->setToolTip(stderr_text);
+            updateButton->setEnabled(true);
+          }
+          process->deleteLater();
+        });
+
+    process->start(
+        QStringLiteral("powershell.exe"),
+        QStringList{QStringLiteral("-NoProfile"),
+                    QStringLiteral("-NonInteractive"),
+                    QStringLiteral("-ExecutionPolicy"),
+                    QStringLiteral("Bypass"), QStringLiteral("-Command"),
+                    command});
+  });
+#else
+  checkUpdateButton->setEnabled(false);
+  updateButton->setVisible(false);
+  updateStatusLabel->setText(
+      QString::fromUtf8("アプリ更新は Windows 版で利用できます。"));
+#endif  // _WIN32
 
   product_image_ =
       std::make_unique<QImage>(QLatin1String(":/product_logo.png"));
