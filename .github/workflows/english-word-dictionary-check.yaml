@@ -1,4 +1,4 @@
-name: English word dictionary feature check
+name: English input assistance check
 
 on:
   push:
@@ -13,10 +13,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rewriter_tests:
-    name: Rewriter tests on Windows
+  windows_check:
+    name: English input assistance on Windows
     runs-on: windows-2025
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -29,14 +29,19 @@ jobs:
         uses: actions/cache@v5
         with:
           path: src/third_party_cache
-          key: update_deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
+          key: update-deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
 
       - name: Install dependencies
         shell: cmd
         working-directory: .\src
         run: python build_tools/update_deps.py
 
-      - name: Run rewriter tests
+      - name: Build Qt
+        shell: cmd
+        working-directory: .\src
+        run: python build_tools/build_qt.py --release --confirm_license
+
+      - name: Test English input assistance
         shell: cmd
         working-directory: .\src
         env:
@@ -44,5 +49,15 @@ jobs:
         run: >-
           bazelisk test --config oss_windows --config release_build
           --test_output=errors
+          //rewriter:english_word_dictionary_rewriter_test
           //rewriter:english_variants_rewriter_test
           //rewriter:rewriter_test
+
+      - name: Build Properties dialog
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: >-
+          bazelisk build --config oss_windows --config release_build
+          //gui/config_dialog:config_dialog
