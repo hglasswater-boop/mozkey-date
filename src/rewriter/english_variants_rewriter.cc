@@ -29,6 +29,7 @@
 
 #include "rewriter/english_variants_rewriter.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -46,7 +47,6 @@
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
-#include "rewriter/rewriter_util.h"
 
 namespace mozc {
 namespace {
@@ -56,9 +56,9 @@ struct EnglishWordEntry {
   absl::string_view value;
 };
 
-// Mozkey's built-in English word dictionary.  Keep rows grouped by reading;
+// Mozkey's built-in English word dictionary. Keep rows grouped by reading;
 // when one reading has multiple common spellings they are emitted in this
-// order.  The table is intentionally independent from Mozc's system dictionary
+// order. The table is intentionally independent from Mozc's system dictionary
 // so Mozkey can evolve its practical PC/development vocabulary without
 // changing Japanese lexical data.
 constexpr EnglishWordEntry kEnglishWordDictionary[] = {
@@ -462,15 +462,14 @@ bool EnglishVariantsRewriter::Rewrite(const ConversionRequest& request,
   return modified;
 }
 
-int EnglishWordDictionaryRewriter::capability(
-    const ConversionRequest& request) const {
+int EnglishWordDictionaryRewriter::capability(const ConversionRequest&) const {
   return RewriterInterface::CONVERSION;
 }
 
 bool EnglishWordDictionaryRewriter::Rewrite(const ConversionRequest& request,
                                             Segments* segments) const {
   // For this first version, use_t13n_conversion is the persisted compatibility
-  // switch exposed as "English word dictionary" in Mozkey Properties.  The
+  // switch exposed as "English word dictionary" in Mozkey Properties. The
   // dictionary implementation itself is independent from T13N conversion so a
   // dedicated config field can replace this bridge without changing candidate
   // generation.
@@ -481,7 +480,8 @@ bool EnglishWordDictionaryRewriter::Rewrite(const ConversionRequest& request,
   bool modified = false;
   for (Segment& segment : segments->conversion_segments()) {
     const absl::string_view key = segment.key();
-    size_t insert_position = RewriterUtil::CalculateInsertPosition(segment, 3);
+    size_t insert_position =
+        std::min<size_t>(3, static_cast<size_t>(segment.candidates_size()));
 
     for (const EnglishWordEntry& entry : kEnglishWordDictionary) {
       if (entry.key != key || HasCandidateValue(segment, entry.value)) {
