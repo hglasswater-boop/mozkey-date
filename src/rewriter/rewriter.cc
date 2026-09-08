@@ -47,6 +47,7 @@
 #include "rewriter/emoji_rewriter.h"
 #include "rewriter/emoticon_rewriter.h"
 #include "rewriter/english_variants_rewriter.h"
+#include "rewriter/english_word_dictionary_rewriter.h"
 #include "rewriter/environmental_filter_rewriter.h"
 #include "rewriter/focus_candidate_rewriter.h"
 #include "rewriter/ivs_variants_rewriter.h"

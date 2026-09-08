@@ -56,9 +56,8 @@ namespace gui {
 //
 // Keeping this in a thin wrapper lets upstream config_dialog.ui stay close to
 // Mozc while still giving Mozkey a scalable place for built-in dictionaries.
-// The existing use_t13n_conversion setting is used as the persisted backing
-// flag for compatibility. The old Katakana-to-English checkbox is hidden and
-// replaced by the clearer English word dictionary entry below.
+// English input assistance is independent from Katakana-to-English conversion:
+// it completes ASCII input and can suggest corrected English spellings.
 class MozkeyConfigDialogUi : public Ui::ConfigDialog {
  public:
   void setupUi(QDialog *dialog) {
@@ -102,9 +101,19 @@ class MozkeyConfigDialogUi : public Ui::ConfigDialog {
     englishWordDictionaryCheckBox->setText(QString::fromUtf8("英単語辞書"));
     englishWordDictionaryCheckBox->setToolTip(
         QString::fromUtf8(
-            "日本語の読みから一般的な英単語候補を追加します。例: "
-            "ぷろぱてぃ → property"));
+            "英字入力中に英単語の補完候補を表示します。例: prope → property"));
     group_layout->addWidget(englishWordDictionaryCheckBox, 1, 0);
+
+    englishSpellingCorrectionCheckBox = new QCheckBox(group);
+    englishSpellingCorrectionCheckBox->setObjectName(
+        QStringLiteral("englishSpellingCorrectionCheckBox"));
+    englishSpellingCorrectionCheckBox->setText(
+        QString::fromUtf8("スペルミスの訂正候補"));
+    englishSpellingCorrectionCheckBox->setToolTip(
+        QString::fromUtf8(
+            "英単語の綴りが違うときに正しい候補を表示します。例: recieve → receive"));
+    englishSpellingCorrectionCheckBox->setContentsMargins(18, 0, 0, 0);
+    group_layout->addWidget(englishSpellingCorrectionCheckBox, 2, 0);
 
     // The old Usage dictionary container is now empty because its checkbox was
     // moved above. Hide the old section and insert the unified built-in list in
@@ -121,18 +130,14 @@ class MozkeyConfigDialogUi : public Ui::ConfigDialog {
     usageDictionaryHeader->setVisible(false);
     usageDictionaryGroup->setVisible(false);
 
-    // Keep the existing persisted setting as a compatibility bridge. The
-    // legacy control is hidden so users see one authoritative switch.
-    englishWordDictionaryCheckBox->setChecked(
-        t13nConversionCheckBox->isChecked());
+    englishSpellingCorrectionCheckBox->setEnabled(
+        englishWordDictionaryCheckBox->isChecked());
     QObject::connect(englishWordDictionaryCheckBox, &QCheckBox::toggled,
-                     t13nConversionCheckBox, &QCheckBox::setChecked);
-    QObject::connect(t13nConversionCheckBox, &QCheckBox::toggled,
-                     englishWordDictionaryCheckBox, &QCheckBox::setChecked);
-    t13nConversionCheckBox->setVisible(false);
+                     englishSpellingCorrectionCheckBox, &QCheckBox::setEnabled);
   }
 
   QCheckBox *englishWordDictionaryCheckBox = nullptr;
+  QCheckBox *englishSpellingCorrectionCheckBox = nullptr;
 };
 
 class ConfigDialog : public QDialog, private MozkeyConfigDialogUi {
