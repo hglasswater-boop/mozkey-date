@@ -92,9 +92,9 @@ class MozkeyConfigDialogUi : public Ui::ConfigDialog {
 
     // Move the existing homonym dictionary setting into the common built-in
     // dictionary list instead of showing it in a separate Usage dictionary
-    // section.
-    localUsageDictionaryCheckBox->setParent(group);
+    // section. QLayout::addWidget transfers it out of its previous layout.
     group_layout->addWidget(localUsageDictionaryCheckBox, 0, 0);
+    localUsageDictionaryCheckBox->setVisible(true);
 
     englishWordDictionaryCheckBox = new QCheckBox(group);
     englishWordDictionaryCheckBox->setObjectName(
