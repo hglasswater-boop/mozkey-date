@@ -29,23 +29,16 @@
 
 #include "rewriter/rewriter.h"
 
-#include <cstddef>
 #include <memory>
-#include <string>
 
 #include "absl/flags/flag.h"
-#include "absl/strings/string_view.h"
 #include "base/container/tuple.h"
-#include "converter/attribute.h"
-#include "converter/candidate.h"
-#include "converter/segments.h"
 #include "data_manager/data_manager.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_group.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/single_kanji_dictionary.h"
 #include "engine/modules.h"
-#include "request/conversion_request.h"
 #include "rewriter/a11y_description_rewriter.h"
 #include "rewriter/calculator_rewriter.h"
 #include "rewriter/collocation_rewriter.h"
@@ -60,8 +53,6 @@
 #include "rewriter/language_aware_rewriter.h"
 #include "rewriter/number_rewriter.h"
 #include "rewriter/remove_redundant_candidate_rewriter.h"
-#include "rewriter/rewriter_interface.h"
-#include "rewriter/rewriter_util.h"
 #include "rewriter/single_kanji_rewriter.h"
 #include "rewriter/small_letter_rewriter.h"
 #include "rewriter/symbol_rewriter.h"
@@ -135,233 +126,6 @@ ABSL_FLAG(bool, use_history_rewriter, false, "Use history rewriter or not.");
 #endif  // MOZC_USER_HISTORY_REWRITER
 
 namespace mozc {
-namespace {
-
-// Mozkey's built-in English word dictionary.
-//
-// The table intentionally lives independently from Mozc's system dictionary so
-// coverage and ranking can evolve without changing Japanese conversion data.
-// Keys are readings used by conversion segments; multiple rows with the same
-// key are allowed and are emitted in table order.
-struct EnglishWordEntry {
-  absl::string_view key;
-  absl::string_view value;
-};
-
-constexpr EnglishWordEntry kEnglishWordDictionary[] = {
-    {"あいこん", "icon"},
-    {"あいであ", "idea"},
-    {"あうとぷっと", "output"},
-    {"あかうんと", "account"},
-    {"あくせす", "access"},
-    {"あくしょん", "action"},
-    {"あどれす", "address"},
-    {"あぷり", "app"},
-    {"あぷり", "application"},
-    {"あぷりけーしょん", "application"},
-    {"あっぷでーと", "update"},
-    {"あっぷる", "apple"},
-    {"あっぷろーど", "upload"},
-    {"あるごりずむ", "algorithm"},
-    {"いべんと", "event"},
-    {"いめーじ", "image"},
-    {"いんすたんす", "instance"},
-    {"いんすとーる", "install"},
-    {"いんたーねっと", "internet"},
-    {"いんたーふぇーす", "interface"},
-    {"いんでっくす", "index"},
-    {"いんぷっと", "input"},
-    {"うぃじぇっと", "widget"},
-    {"うぃんどう", "window"},
-    {"えくすぽーと", "export"},
-    {"えくすぷろーらー", "explorer"},
-    {"えでぃた", "editor"},
-    {"えでぃたー", "editor"},
-    {"えらー", "error"},
-    {"えんじん", "engine"},
-    {"おぶじぇくと", "object"},
-    {"おふらいん", "offline"},
-    {"おぷしょん", "option"},
-    {"おんらいん", "online"},
-    {"かれんだー", "calendar"},
-    {"きー", "key"},
-    {"きーぼーど", "keyboard"},
-    {"きゃっしゅ", "cache"},
-    {"きゃすと", "cast"},
-    {"きゃんでぃでーと", "candidate"},
-    {"きゅー", "queue"},
-    {"くらいあんと", "client"},
-    {"くらうど", "cloud"},
-    {"くりっく", "click"},
-    {"ぐるーぷ", "group"},
-    {"ぐろーばる", "global"},
-    {"けーす", "case"},
-    {"こーど", "code"},
-    {"こぴー", "copy"},
-    {"こまんど", "command"},
-    {"こみっと", "commit"},
-    {"こんそーる", "console"},
-    {"こんてきすと", "context"},
-    {"こんてな", "container"},
-    {"こんばーじょん", "conversion"},
-    {"こんぱいる", "compile"},
-    {"こんぴゅーた", "computer"},
-    {"こんぴゅーたー", "computer"},
-    {"さーち", "search"},
-    {"さーば", "server"},
-    {"さーばー", "server"},
-    {"さーびす", "service"},
-    {"さいず", "size"},
-    {"さいと", "site"},
-    {"しすてむ", "system"},
-    {"しーん", "scene"},
-    {"すくりぷと", "script"},
-    {"すたっく", "stack"},
-    {"すてーたす", "status"},
-    {"すとりーむ", "stream"},
-    {"すとーりーぼーど", "storyboard"},
-    {"すとれーじ", "storage"},
-    {"すぺーす", "space"},
-    {"すれっど", "thread"},
-    {"せきゅりてぃ", "security"},
-    {"せってぃんぐ", "setting"},
-    {"せっしょん", "session"},
-    {"そけっと", "socket"},
-    {"たぐ", "tag"},
-    {"たすく", "task"},
-    {"たいとる", "title"},
-    {"だうんろーど", "download"},
-    {"てきすと", "text"},
-    {"てすと", "test"},
-    {"てーぶる", "table"},
-    {"てんぷれーと", "template"},
-    {"でーた", "data"},
-    {"でーたべーす", "database"},
-    {"でばいす", "device"},
-    {"でばっぐ", "debug"},
-    {"でぃくしょなり", "dictionary"},
-    {"でぃれくとり", "directory"},
-    {"どきゅめんと", "document"},
-    {"どめいん", "domain"},
-    {"どらいば", "driver"},
-    {"どらいばー", "driver"},
-    {"どらっぐ", "drag"},
-    {"どろっぷ", "drop"},
-    {"とーくん", "token"},
-    {"ねっとわーく", "network"},
-    {"ねーむ", "name"},
-    {"のーど", "node"},
-    {"ばいなり", "binary"},
-    {"ばっくあっぷ", "backup"},
-    {"ばーじょん", "version"},
-    {"ぱす", "path"},
-    {"ぱすわーど", "password"},
-    {"ぱっけーじ", "package"},
-    {"ぱらめーた", "parameter"},
-    {"ぱらめーたー", "parameter"},
-    {"びるど", "build"},
-    {"ふぁいる", "file"},
-    {"ふぃるた", "filter"},
-    {"ふぃるたー", "filter"},
-    {"ふぉるだ", "folder"},
-    {"ふぉるだー", "folder"},
-    {"ふぉーまっと", "format"},
-    {"ふらぐ", "flag"},
-    {"ふらっしゅ", "flush"},
-    {"ふれーむ", "frame"},
-    {"ぶらうざ", "browser"},
-    {"ぶらうざー", "browser"},
-    {"ぶらんち", "branch"},
-    {"ぷらぐいん", "plugin"},
-    {"ぷれいやー", "player"},
-    {"ぷろぐらむ", "program"},
-    {"ぷろじぇくと", "project"},
-    {"ぷろせす", "process"},
-    {"ぷろとこる", "protocol"},
-    {"ぷろぱてぃ", "property"},
-    {"ぷろぱてぃー", "property"},
-    {"ぼたん", "button"},
-    {"ほすと", "host"},
-    {"ぽーと", "port"},
-    {"まうす", "mouse"},
-    {"まーじ", "merge"},
-    {"めそっど", "method"},
-    {"めにゅー", "menu"},
-    {"めもり", "memory"},
-    {"もじゅーる", "module"},
-    {"もーど", "mode"},
-    {"ゆーざ", "user"},
-    {"ゆーざー", "user"},
-    {"らいぶらり", "library"},
-    {"りくえすと", "request"},
-    {"りすと", "list"},
-    {"りすぽんす", "response"},
-    {"りぽじとり", "repository"},
-    {"りんく", "link"},
-    {"るーた", "router"},
-    {"るーたー", "router"},
-    {"るーる", "rule"},
-    {"れいあうと", "layout"},
-    {"れこーど", "record"},
-    {"れんだら", "renderer"},
-    {"れんだらー", "renderer"},
-    {"ろぐ", "log"},
-    {"ろーかる", "local"},
-    {"わーか", "worker"},
-    {"わーかー", "worker"},
-};
-
-bool HasCandidateValue(const Segment &segment, absl::string_view value) {
-  for (const converter::Candidate &candidate : segment.candidates()) {
-    if (candidate.value == value) {
-      return true;
-    }
-  }
-  return false;
-}
-
-class EnglishWordDictionaryRewriter final : public RewriterInterface {
- public:
-  int capability(const ConversionRequest &request) const override {
-    return RewriterInterface::CONVERSION;
-  }
-
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override {
-    // use_t13n_conversion is the persisted compatibility switch exposed as
-    // "English word dictionary" in Mozkey's Properties dialog.
-    if (!request.config().use_t13n_conversion()) {
-      return false;
-    }
-
-    bool modified = false;
-    for (Segment &segment : segments->conversion_segments()) {
-      const absl::string_view key = segment.key();
-      size_t insert_position = RewriterUtil::CalculateInsertPosition(segment, 3);
-
-      for (const EnglishWordEntry &entry : kEnglishWordDictionary) {
-        if (entry.key != key || HasCandidateValue(segment, entry.value)) {
-          continue;
-        }
-
-        converter::Candidate *candidate =
-            segment.insert_candidate(insert_position++);
-        candidate->key = std::string(key);
-        candidate->content_key = candidate->key;
-        candidate->value = std::string(entry.value);
-        candidate->content_value = candidate->value;
-        candidate->description = "英単語辞書";
-        candidate->attributes |=
-            (converter::Attribute::NO_LEARNING |
-             converter::Attribute::NO_VARIANTS_EXPANSION);
-        modified = true;
-      }
-    }
-    return modified;
-  }
-};
-
-}  // namespace
 
 Rewriter::Rewriter(const engine::Modules& modules) {
   const DataManager& data_manager = modules.GetDataManager();
