@@ -38,7 +38,6 @@
 #include <string>
 
 #include <QCheckBox>
-#include <QCoreApplication>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -74,8 +73,7 @@ class MozkeyConfigDialogUi : public Ui::ConfigDialog {
 
     auto *title = new QLabel(header);
     title->setObjectName(QStringLiteral("builtInDictionaryLabel"));
-    title->setText(QCoreApplication::translate("ConfigDialog",
-                                               "Built-in dictionaries"));
+    title->setText(QString::fromUtf8("内蔵辞書"));
     header_layout->addWidget(title);
 
     auto *line = new QFrame(header);
@@ -90,26 +88,27 @@ class MozkeyConfigDialogUi : public Ui::ConfigDialog {
     auto *group_layout = new QGridLayout(group);
     group_layout->setContentsMargins(24, 9, 24, 9);
     group_layout->setHorizontalSpacing(8);
-    group_layout->setVerticalSpacing(4);
+    group_layout->setVerticalSpacing(6);
+
+    // Move the existing homonym dictionary setting into the common built-in
+    // dictionary list instead of showing it in a separate Usage dictionary
+    // section.
+    localUsageDictionaryCheckBox->setParent(group);
+    group_layout->addWidget(localUsageDictionaryCheckBox, 0, 0);
 
     englishWordDictionaryCheckBox = new QCheckBox(group);
     englishWordDictionaryCheckBox->setObjectName(
         QStringLiteral("englishWordDictionaryCheckBox"));
-    englishWordDictionaryCheckBox->setText(
-        QString::fromUtf8("英単語辞書"));
-    group_layout->addWidget(englishWordDictionaryCheckBox, 0, 0);
+    englishWordDictionaryCheckBox->setText(QString::fromUtf8("英単語辞書"));
+    englishWordDictionaryCheckBox->setToolTip(
+        QString::fromUtf8(
+            "日本語の読みから一般的な英単語候補を追加します。例: "
+            "ぷろぱてぃ → property"));
+    group_layout->addWidget(englishWordDictionaryCheckBox, 1, 0);
 
-    auto *description = new QLabel(group);
-    description->setObjectName(
-        QStringLiteral("englishWordDictionaryDescriptionLabel"));
-    description->setText(
-        QString::fromUtf8("日本語の読みから英単語候補を表示します"));
-    description->setWordWrap(true);
-    group_layout->addWidget(description, 1, 0, 1, 2);
-
-    // Put built-in dictionaries next to the other dictionary sections, before
-    // the usage dictionary. This leaves room for adding more built-in
-    // dictionary rows later without changing the overall dialog structure.
+    // The old Usage dictionary container is now empty because its checkbox was
+    // moved above. Hide the old section and insert the unified built-in list in
+    // the same position so the Dictionary tab keeps its familiar ordering.
     int insert_index = dictionaryTabLayout->indexOf(usageDictionaryHeader);
     if (insert_index < 0) {
       insert_index = dictionaryTabLayout->indexOf(specialConversionsHeader);
@@ -119,6 +118,8 @@ class MozkeyConfigDialogUi : public Ui::ConfigDialog {
     }
     dictionaryTabLayout->insertWidget(insert_index, header);
     dictionaryTabLayout->insertWidget(insert_index + 1, group);
+    usageDictionaryHeader->setVisible(false);
+    usageDictionaryGroup->setVisible(false);
 
     // Keep the existing persisted setting as a compatibility bridge. The
     // legacy control is hidden so users see one authoritative switch.
