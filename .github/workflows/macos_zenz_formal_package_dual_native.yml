@@ -1,13 +1,8 @@
 name: macOS Zenz formal package dual-native validation
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch:
+# Windows is the supported build target for mozkey-date.
+# Keep this expensive macOS packaging validation available only on demand.
+on: workflow_dispatch
 
 permissions:
   contents: read
