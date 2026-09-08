@@ -1,0 +1,181 @@
+name: Prepare English input assistance
+
+on:
+  push:
+    branches:
+      - feature/english-word-dictionary
+
+permissions:
+  contents: write
+
+concurrency:
+  group: english-word-dictionary-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Build pinned ESDB and extract tiered American word lists
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --filter=blob:none https://github.com/en-wl/wordlist.git /tmp/esdb
+          git -C /tmp/esdb checkout 1e5b7d3a72f47a71da5d28686c1dd4b397178485
+          make -C /tmp/esdb scowl.db
+          /tmp/esdb/scowl --db /tmp/esdb/scowl.db word-list 35 A 1 --deaccent > /tmp/esdb-35.txt
+          /tmp/esdb/scowl --db /tmp/esdb/scowl.db word-list 50 A 1 --deaccent > /tmp/esdb-50.txt
+          /tmp/esdb/scowl --db /tmp/esdb/scowl.db word-list 60 A 1 --deaccent > /tmp/esdb-60.txt
+          /tmp/esdb/scowl --db /tmp/esdb/scowl.db word-list 70 A 1 --deaccent > /tmp/esdb-70.txt
+
+          python src/rewriter/gen_english_word_dictionary.py \
+            --tier-list 35=/tmp/esdb-35.txt \
+            --tier-list 50=/tmp/esdb-50.txt \
+            --tier-list 60=/tmp/esdb-60.txt \
+            --tier-list 70=/tmp/esdb-70.txt \
+            --source-revision 1e5b7d3a72f47a71da5d28686c1dd4b397178485 \
+            --output src/rewriter/english_word_dictionary_data.inc
+
+      - name: Wire dedicated config, UI, and Bazel targets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git checkout origin/main -- \
+            src/rewriter/english_variants_rewriter.cc \
+            src/rewriter/english_variants_rewriter.h
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if new in text:
+                  return
+              if old not in text:
+                  raise RuntimeError(f"anchor not found in {path}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Dedicated persisted switches. Do not reuse T13N or Japanese
+          # spelling-correction settings.
+          replace_once(
+              "src/protocol/config.proto",
+              "  optional bool use_spelling_correction = 88 [default = true];\n",
+              "  optional bool use_spelling_correction = 88 [default = true];\n\n"
+              "  // Mozkey English input assistance. This is independent from\n"
+              "  // Katakana-to-English conversion and Japanese reading correction.\n"
+              "  optional bool use_english_word_dictionary = 1028 [default = true];\n"
+              "  optional bool use_english_spelling_correction = 1029 [default = true];\n",
+          )
+
+          # Properties dialog persistence.
+          replace_once(
+              "src/gui/config_dialog/config_dialog.cc",
+              "  SET_CHECKBOX(spellingCorrectionCheckBox, use_spelling_correction);\n",
+              "  SET_CHECKBOX(spellingCorrectionCheckBox, use_spelling_correction);\n"
+              "  englishWordDictionaryCheckBox->setChecked(\n"
+              "      config.use_english_word_dictionary());\n"
+              "  englishSpellingCorrectionCheckBox->setChecked(\n"
+              "      config.use_english_spelling_correction());\n"
+              "  englishSpellingCorrectionCheckBox->setEnabled(\n"
+              "      config.use_english_word_dictionary());\n",
+          )
+          replace_once(
+              "src/gui/config_dialog/config_dialog.cc",
+              "  GET_CHECKBOX(spellingCorrectionCheckBox, use_spelling_correction);\n",
+              "  GET_CHECKBOX(spellingCorrectionCheckBox, use_spelling_correction);\n"
+              "  config->set_use_english_word_dictionary(\n"
+              "      englishWordDictionaryCheckBox->isChecked());\n"
+              "  config->set_use_english_spelling_correction(\n"
+              "      englishSpellingCorrectionCheckBox->isChecked());\n",
+          )
+
+          # Fix the product-specific dictionary section that was prototyped with
+          # kana->English semantics. T13N remains visible and independent.
+          p = Path("src/gui/config_dialog/config_dialog.h")
+          text = p.read_text(encoding="utf-8")
+          old_comment = '''// Product-specific additions to the generated Qt Designer UI.\n//\n// Keeping this in a thin wrapper lets upstream config_dialog.ui stay close to\n// Mozc while still giving Mozkey a scalable place for built-in dictionaries.\n// The existing use_t13n_conversion setting is used as the persisted backing\n// flag for compatibility. The old Katakana-to-English checkbox is hidden and\n// replaced by the clearer English word dictionary entry below.\n'''
+          new_comment = '''// Product-specific additions to the generated Qt Designer UI.\n//\n// Keeping this in a thin wrapper lets upstream config_dialog.ui stay close to\n// Mozc while still giving Mozkey a scalable place for built-in dictionaries.\n// English input assistance is independent from Katakana-to-English conversion:\n// it completes ASCII input and can suggest corrected English spellings.\n'''
+          if old_comment in text:
+              text = text.replace(old_comment, new_comment, 1)
+
+          start = text.index("    englishWordDictionaryCheckBox->setToolTip(")
+          end_marker = "    group_layout->addWidget(englishWordDictionaryCheckBox, 1, 0);\n"
+          end = text.index(end_marker, start) + len(end_marker)
+          text = text[:start] + '''    englishWordDictionaryCheckBox->setToolTip(\n        QString::fromUtf8(\n            "英字入力中に英単語の補完候補を表示します。例: prope → property"));\n    group_layout->addWidget(englishWordDictionaryCheckBox, 1, 0);\n\n    englishSpellingCorrectionCheckBox = new QCheckBox(group);\n    englishSpellingCorrectionCheckBox->setObjectName(\n        QStringLiteral("englishSpellingCorrectionCheckBox"));\n    englishSpellingCorrectionCheckBox->setText(\n        QString::fromUtf8("スペルミスの訂正候補"));\n    englishSpellingCorrectionCheckBox->setToolTip(\n        QString::fromUtf8(\n            "英単語の綴りが違うときに正しい候補を表示します。例: recieve → receive"));\n    englishSpellingCorrectionCheckBox->setContentsMargins(18, 0, 0, 0);\n    group_layout->addWidget(englishSpellingCorrectionCheckBox, 2, 0);\n''' + text[end:]
+
+          bridge_start = text.index(
+              "    // Keep the existing persisted setting as a compatibility bridge.")
+          bridge_end_marker = "    t13nConversionCheckBox->setVisible(false);\n"
+          bridge_end = text.index(bridge_end_marker, bridge_start) + len(bridge_end_marker)
+          text = text[:bridge_start] + '''    englishSpellingCorrectionCheckBox->setEnabled(\n        englishWordDictionaryCheckBox->isChecked());\n    QObject::connect(englishWordDictionaryCheckBox, &QCheckBox::toggled,\n                     englishSpellingCorrectionCheckBox, &QCheckBox::setEnabled);\n''' + text[bridge_end:]
+
+          member = "  QCheckBox *englishWordDictionaryCheckBox = nullptr;\n"
+          if "englishSpellingCorrectionCheckBox" not in text[text.rfind(member):]:
+              text = text.replace(
+                  member,
+                  member + "  QCheckBox *englishSpellingCorrectionCheckBox = nullptr;\n",
+                  1,
+              )
+          p.write_text(text, encoding="utf-8")
+
+          # Register the dedicated rewriter implementation.
+          replace_once(
+              "src/rewriter/rewriter.cc",
+              '#include "rewriter/english_variants_rewriter.h"\n',
+              '#include "rewriter/english_variants_rewriter.h"\n'
+              '#include "rewriter/english_word_dictionary_rewriter.h"\n',
+          )
+
+          # Add a dedicated Bazel library/test and link it into the aggregate
+          # rewriter target.
+          build = Path("src/rewriter/BUILD.bazel")
+          text = build.read_text(encoding="utf-8")
+          if 'name = "english_word_dictionary_rewriter"' not in text:
+              marker = 'mozc_cc_library(\n    name = "fortune_rewriter",\n'
+              block = '''mozc_cc_library(\n    name = "english_word_dictionary_rewriter",\n    srcs = ["english_word_dictionary_rewriter.cc"],\n    hdrs = ["english_word_dictionary_rewriter.h"],\n    textual_hdrs = ["english_word_dictionary_data.inc"],\n    deps = [\n        ":rewriter_interface",\n        "//converter:attribute",\n        "//converter:segments",\n        "//protocol:config_cc_proto",\n        "//request:conversion_request",\n        "@com_google_absl//absl/strings",\n    ],\n    alwayslink = 1,\n)\n\nmozc_cc_test(\n    name = "english_word_dictionary_rewriter_test",\n    size = "small",\n    srcs = ["english_word_dictionary_rewriter_test.cc"],\n    deps = [\n        ":english_word_dictionary_rewriter",\n        "//config:config_handler",\n        "//converter:attribute",\n        "//converter:segments",\n        "//protocol:config_cc_proto",\n        "//request:conversion_request",\n        "//testing:gunit_main",\n        "@com_google_absl//absl/strings:string_view",\n    ],\n)\n\n'''
+              if marker not in text:
+                  raise RuntimeError("fortune_rewriter BUILD anchor not found")
+              text = text.replace(marker, block + marker, 1)
+          if '        ":english_word_dictionary_rewriter",\n' not in text:
+              dep_anchor = '        ":english_variants_rewriter",\n'
+              # Use the occurrence in the aggregate `rewriter` target, not the
+              # earlier test blocks. The aggregate is after name = "rewriter".
+              rewriter_pos = text.index('    name = "rewriter",')
+              dep_pos = text.index(dep_anchor, rewriter_pos)
+              text = text[:dep_pos + len(dep_anchor)] + \
+                  '        ":english_word_dictionary_rewriter",\n' + \
+                  text[dep_pos + len(dep_anchor):]
+          build.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Commit generated dictionary and wiring
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            src/protocol/config.proto \
+            src/gui/config_dialog/config_dialog.cc \
+            src/gui/config_dialog/config_dialog.h \
+            src/rewriter/BUILD.bazel \
+            src/rewriter/rewriter.cc \
+            src/rewriter/english_variants_rewriter.cc \
+            src/rewriter/english_variants_rewriter.h \
+            src/rewriter/english_word_dictionary_data.inc
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git commit -m "Generate broad English input assistance dictionary"
+          git push origin HEAD:feature/english-word-dictionary
