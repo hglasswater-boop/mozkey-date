@@ -710,6 +710,41 @@ TEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {
   Clock::SetClockForUnitTest(nullptr);
 }
 
+TEST_F(DateRewriterTest, AtokStyleMultipleCustomFormatsPreserveOrder) {
+  ClockMock mock_clock(ParseTimeOrDie("2026-09-08T12:00:00Z"));
+  Clock::SetClockForUnitTest(&mock_clock);
+
+  Segments segments;
+  DateRewriter rewriter;
+  auto table = std::make_shared<composer::Table>();
+  const commands::Request command_request;
+  config::Config config;
+  config.add_date_conversion_custom_formats("{YEAR}.{MONTH}.{DATE}");
+  config.add_date_conversion_custom_formats("{YEAR}_{MONTH}_{DATE}");
+  const composer::Composer composer(table, command_request, config);
+  const ConversionRequest request = ConversionRequestBuilder()
+                                        .SetComposer(composer)
+                                        .SetConfig(config)
+                                        .Build();
+
+  InitSegment("9/8", "9/8", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  ASSERT_GE(segments.segment(0).candidates_size(), 4);
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
+  EXPECT_EQ(segments.segment(0).candidate(3).value, "2026/09/08");
+
+  InitSegment("きょう", "今日", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  ASSERT_GE(segments.segment(0).candidates_size(), 4);
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
+  EXPECT_EQ(segments.segment(0).candidate(3).value, "2026/09/08");
+
+  Clock::SetClockForUnitTest(nullptr);
+}
+
 TEST_F(DateRewriterTest, NumberRewriterTest) {
   Segments segments;
   DateRewriter rewriter;

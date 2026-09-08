@@ -409,7 +409,13 @@ message Config {
 
   // Preferred custom format for date conversion candidates.
   // Accepts {YEAR}, {MONTH}, and {DATE}. Built-ins remain available.
+  // Kept for compatibility with v0.1.0.
   optional string date_conversion_custom_format = 1026 [default = ""];
+
+  // Ordered preferred date formats. Earlier entries are inserted before later
+  // entries in the conversion candidate list. If empty, the legacy single
+  // date_conversion_custom_format field above is used.
+  repeated string date_conversion_custom_formats = 1027;
   optional bool use_single_kanji_conversion = 81 [default = true];
   optional bool use_symbol_conversion = 82 [default = true];
   optional bool use_number_conversion = 83 [default = true];
