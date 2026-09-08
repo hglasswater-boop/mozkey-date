@@ -32,12 +32,18 @@
 #ifndef MOZC_GUI_CONFIG_DIALOG_CONFIG_DIALOG_H_
 #define MOZC_GUI_CONFIG_DIALOG_CONFIG_DIALOG_H_
 
-#include <QObject>
-#include <QTimer>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
-#include <cstdint>
+
+#include <QCheckBox>
+#include <QFrame>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QObject>
+#include <QTimer>
 
 #include "client/client_interface.h"
 #include "gui/config_dialog/ui_config_dialog.h"
@@ -46,7 +52,98 @@
 namespace mozc {
 namespace gui {
 
-class ConfigDialog : public QDialog, private Ui::ConfigDialog {
+// Mozkey-specific additions to the generated Qt Designer UI.
+//
+// Date conversion is already implemented by DateRewriter and controlled by
+// Config::use_date_conversion. This wrapper exposes that built-in date
+// dictionary in the Dictionary tab without introducing a second setting. The
+// checkbox here and the master checkbox on the Date tab are kept in sync.
+class MozkeyConfigDialogUi : public Ui::ConfigDialog {
+ public:
+  void setupUi(QDialog *dialog) {
+    Ui::ConfigDialog::setupUi(dialog);
+
+    auto *header = new QFrame(dictionaryTab);
+    header->setObjectName(QStringLiteral("builtInDictionaryHeader"));
+    header->setFrameShape(QFrame::NoFrame);
+
+    auto *header_layout = new QHBoxLayout(header);
+    header_layout->setContentsMargins(9, 9, 9, 9);
+    header_layout->setSpacing(6);
+
+    auto *title = new QLabel(QString::fromUtf8("内蔵辞書"), header);
+    title->setObjectName(QStringLiteral("builtInDictionaryLabel"));
+    header_layout->addWidget(title);
+
+    auto *line = new QFrame(header);
+    line->setObjectName(QStringLiteral("builtInDictionaryLine"));
+    line->setFrameShape(QFrame::HLine);
+    line->setFrameShadow(QFrame::Sunken);
+    header_layout->addWidget(line, 1);
+
+    auto *group = new QFrame(dictionaryTab);
+    group->setObjectName(QStringLiteral("builtInDictionaryGroup"));
+    group->setFrameShape(QFrame::NoFrame);
+
+    auto *group_layout = new QGridLayout(group);
+    group_layout->setContentsMargins(24, 9, 24, 9);
+    group_layout->setHorizontalSpacing(8);
+    group_layout->setVerticalSpacing(6);
+
+    // Keep the existing homonym dictionary in the same list as Mozkey's date
+    // dictionary. Adding an existing widget to a new layout transfers it from
+    // the old Usage dictionary layout.
+    group_layout->addWidget(localUsageDictionaryCheckBox, 0, 0);
+    localUsageDictionaryCheckBox->setVisible(true);
+
+    dateDictionaryCheckBox = new QCheckBox(group);
+    dateDictionaryCheckBox->setObjectName(
+        QStringLiteral("dateDictionaryCheckBox"));
+    dateDictionaryCheckBox->setText(QString::fromUtf8("日付辞書"));
+    dateDictionaryCheckBox->setToolTip(
+        QString::fromUtf8(
+            "今日・明日などの相対日付や、9/8・2026/9/8などの"
+            "ATOK風の日付入力を変換候補に追加します。"));
+    group_layout->addWidget(dateDictionaryCheckBox, 1, 0);
+
+    auto *date_dictionary_description = new QLabel(
+        QString::fromUtf8("今日 / 明日 / 9/8 / 2026/9/8 など"), group);
+    date_dictionary_description->setObjectName(
+        QStringLiteral("dateDictionaryDescriptionLabel"));
+    date_dictionary_description->setEnabled(false);
+    group_layout->addWidget(date_dictionary_description, 1, 1);
+    group_layout->setColumnStretch(1, 1);
+
+    // The former Usage dictionary section becomes empty after moving its
+    // checkbox above. Replace it in-place so the Dictionary tab keeps its
+    // familiar ordering: personalization, user dictionary, built-in
+    // dictionaries, then special conversions.
+    int insert_index = dictionaryTabLayout->indexOf(usageDictionaryHeader);
+    if (insert_index < 0) {
+      insert_index = dictionaryTabLayout->indexOf(specialConversionsHeader);
+    }
+    if (insert_index < 0) {
+      insert_index = dictionaryTabLayout->count();
+    }
+    dictionaryTabLayout->insertWidget(insert_index, header);
+    dictionaryTabLayout->insertWidget(insert_index + 1, group);
+    usageDictionaryHeader->setVisible(false);
+    usageDictionaryGroup->setVisible(false);
+
+    // One authoritative config value, two entry points in Properties. During
+    // Reload/Reset, ConfigDialog updates dateConversionCheckBox from
+    // Config::use_date_conversion and the signal below immediately mirrors it.
+    dateDictionaryCheckBox->setChecked(dateConversionCheckBox->isChecked());
+    QObject::connect(dateDictionaryCheckBox, &QCheckBox::toggled,
+                     dateConversionCheckBox, &QCheckBox::setChecked);
+    QObject::connect(dateConversionCheckBox, &QCheckBox::toggled,
+                     dateDictionaryCheckBox, &QCheckBox::setChecked);
+  }
+
+  QCheckBox *dateDictionaryCheckBox = nullptr;
+};
+
+class ConfigDialog : public QDialog, private MozkeyConfigDialogUi {
   Q_OBJECT;
 
  public:
