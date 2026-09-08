@@ -68,18 +68,6 @@ class EnglishVariantsRewriter : public RewriterInterface {
   const dictionary::PosMatcher pos_matcher_;
 };
 
-// Mozkey built-in dictionary that adds common English spellings for Japanese
-// readings, e.g. 「ぷろぱてぃ」 -> "property".  This is intentionally kept
-// separate from EnglishVariantsRewriter because the latter only expands case
-// variants of English candidates that already exist.
-class EnglishWordDictionaryRewriter final : public RewriterInterface {
- public:
-  int capability(const ConversionRequest& request) const override;
-
-  bool Rewrite(const ConversionRequest& request,
-               Segments* segments) const override;
-};
-
 }  // namespace mozc
 
 #endif  // MOZC_REWRITER_ENGLISH_VARIANTS_REWRITER_H_
