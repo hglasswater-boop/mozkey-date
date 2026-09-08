@@ -1,6 +1,7 @@
 name: English input assistance check
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/english-word-dictionary
