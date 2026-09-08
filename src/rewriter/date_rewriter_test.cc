@@ -154,6 +154,36 @@ TEST_F(DateRewriterTest, DateRewriteTest) {
                 }));
   }
   {
+  InitSegment("ほんじつ", "本日", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  constexpr absl::string_view kDesc = "今日の日付";
+  ASSERT_EQ(segments.segments_size(), 1);
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("本日", ""),
+                  ValueAndDescAre("2011/04/18", kDesc),
+                  ValueAndDescAre("2011-04-18", kDesc),
+                  ValueAndDescAre("2011年4月18日", kDesc),
+                  ValueAndDescAre("平成23年4月18日", kDesc),
+                  ValueAndDescAre("月曜日", kDesc),
+              }));
+}
+{
+  InitSegment("ひづけ", "日付", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  constexpr absl::string_view kDesc = "今日の日付";
+  ASSERT_EQ(segments.segments_size(), 1);
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("日付", ""),
+                  ValueAndDescAre("2011/04/18", kDesc),
+                  ValueAndDescAre("2011-04-18", kDesc),
+                  ValueAndDescAre("2011年4月18日", kDesc),
+                  ValueAndDescAre("平成23年4月18日", kDesc),
+                  ValueAndDescAre("月曜日", kDesc),
+              }));
+}
+  {
     InitSegment("あした", "明日", &segments);
     EXPECT_TRUE(rewriter.Rewrite(request, &segments));
     constexpr absl::string_view kDesc = "明日の日付";
@@ -168,6 +198,21 @@ TEST_F(DateRewriterTest, DateRewriteTest) {
                     ValueAndDescAre("火曜日", kDesc),
                 }));
   }
+  {
+  InitSegment("みょうにち", "明日", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  constexpr absl::string_view kDesc = "明日の日付";
+  ASSERT_EQ(segments.segments_size(), 1);
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("明日", ""),
+                  ValueAndDescAre("2011/04/19", kDesc),
+                  ValueAndDescAre("2011-04-19", kDesc),
+                  ValueAndDescAre("2011年4月19日", kDesc),
+                  ValueAndDescAre("平成23年4月19日", kDesc),
+                  ValueAndDescAre("火曜日", kDesc),
+              }));
+}
   {
     InitSegment("きのう", "昨日", &segments);
     EXPECT_TRUE(rewriter.Rewrite(request, &segments));
@@ -546,6 +591,123 @@ TEST_F(DateRewriterTest, ConvertDateTest) {
   EXPECT_FALSE(DateRewriter::ConvertDateWithYear(2000, 0, 1, &results));
   EXPECT_FALSE(DateRewriter::ConvertDateWithYear(2000, 1, 0, &results));
   EXPECT_FALSE(DateRewriter::ConvertDateWithYear(2000, 0, 0, &results));
+}
+
+TEST_F(DateRewriterTest, AtokStyleCompactDate) {
+  Segments segments;
+  DateRewriter rewriter;
+  auto table = std::make_shared<composer::Table>();
+  const commands::Request request;
+  const config::Config config;
+  const composer::Composer composer(table, request, config);
+  const ConversionRequest conversion_request =
+      ConversionRequestBuilder().SetComposer(composer).Build();
+
+  InitSegment("20260908", "20260908", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(conversion_request, &segments));
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("20260908", ""),
+                  ValueAndDescAre("2026/09/08", "日付"),
+                  ValueAndDescAre("2026-09-08", "日付"),
+                  ValueAndDescAre("2026年9月8日", "日付"),
+                  ValueAndDescAre("2026/09/08(火)", "日付"),
+                  ValueAndDescAre("2026年9月8日(火)", "日付"),
+                  ValueAndDescAre("令和8年9月8日", "日付"),
+                  ValueAndDescAre("令和8年9月8日(火)", "日付"),
+              }));
+
+  InitSegment("20240229", "20240229", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(conversion_request, &segments));
+
+  for (const absl::string_view input :
+       {"20260229", "20261301", "20260001", "00000000"}) {
+    InitSegment(input, input, &segments);
+    EXPECT_FALSE(rewriter.Rewrite(conversion_request, &segments)) << input;
+  }
+}
+
+TEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {
+  ClockMock mock_clock(ParseTimeOrDie("2026-09-08T12:00:00Z"));
+  Clock::SetClockForUnitTest(&mock_clock);
+
+  Segments segments;
+  DateRewriter rewriter;
+  auto table = std::make_shared<composer::Table>();
+  const commands::Request command_request;
+  config::Config config;
+  config.set_date_conversion_custom_format("{YEAR}.{MONTH}.{DATE}");
+  const composer::Composer composer(table, command_request, config);
+  const ConversionRequest request = ConversionRequestBuilder()
+                                        .SetComposer(composer)
+                                        .SetConfig(config)
+                                        .Build();
+
+  InitSegment("9/8", "9/8", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("9/8", ""),
+                  ValueAndDescAre("2026.09.08", "日付"),
+                  ValueAndDescAre("2026/09/08", "日付"),
+                  ValueAndDescAre("2026-09-08", "日付"),
+                  ValueAndDescAre("2026年9月8日", "日付"),
+                  ValueAndDescAre("2026/09/08(火)", "日付"),
+                  ValueAndDescAre("2026年9月8日(火)", "日付"),
+                  ValueAndDescAre("令和8年9月8日", "日付"),
+                  ValueAndDescAre("令和8年9月8日(火)", "日付"),
+              }));
+
+  InitSegment("2026-9-8", "2026-9-8", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026/09/08");
+
+  InitSegment("９／８", "９／８", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026/09/08");
+
+  for (const absl::string_view input :
+       {"13/1", "9/32", "2026/2/29", "2026//8"}) {
+    InitSegment(input, input, &segments);
+    EXPECT_FALSE(rewriter.Rewrite(request, &segments)) << input;
+  }
+
+  InitSegment("きょう", "今日", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  constexpr absl::string_view kDesc = "今日の日付";
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("今日", ""),
+                  ValueAndDescAre("2026.09.08", kDesc),
+                  ValueAndDescAre("2026/09/08", kDesc),
+                  ValueAndDescAre("2026-09-08", kDesc),
+                  ValueAndDescAre("2026年9月8日", kDesc),
+                  ValueAndDescAre("令和8年9月8日", kDesc),
+                  ValueAndDescAre("火曜日", kDesc),
+              }));
+  composer::Composer raw_composer(table, command_request, config);
+  raw_composer.InsertCharacter("9/8");
+  const ConversionRequest raw_input_request =
+      ConversionRequestBuilder()
+          .SetComposer(raw_composer)
+          .SetConfig(config)
+          .Build();
+
+  // The converter may normalize the slash to a middle dot.  The raw input
+  // still represents the user's explicit intent and must win.
+  InitSegment("9・8", "9・8", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(raw_input_request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+
+  // Do not duplicate an exact literal candidate that is already present.
+  InitSegment("9・8", "9/8", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(raw_input_request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+  Clock::SetClockForUnitTest(nullptr);
 }
 
 TEST_F(DateRewriterTest, NumberRewriterTest) {
