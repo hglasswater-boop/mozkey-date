@@ -1,0 +1,115 @@
+name: Publish Windows release
+
+on:
+  workflow_run:
+    workflows:
+      - CI for Windows
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout triggering revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Find release tag for triggering revision
+        id: release_tag
+        shell: bash
+        env:
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          matches=()
+          while IFS= read -r ref; do
+            [[ -n "$ref" ]] || continue
+            resolved="$(git rev-list -n 1 "$ref")"
+            if [[ "$resolved" == "$TARGET_SHA" ]]; then
+              matches+=("${ref#refs/tags/}")
+            fi
+          done < <(git for-each-ref --format='%(refname)' 'refs/tags/v*')
+
+          if (( ${#matches[@]} == 0 )); then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "No v* tag points at $TARGET_SHA; nothing to publish."
+            exit 0
+          fi
+
+          if (( ${#matches[@]} != 1 )); then
+            printf 'Multiple v* tags point at %s: %s\n' "$TARGET_SHA" "${matches[*]}" >&2
+            exit 1
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "tag=${matches[0]}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${matches[0]} from $TARGET_SHA"
+
+      - name: Download universal Windows MSI from triggering run
+        if: steps.release_tag.outputs.should_release == 'true'
+        uses: actions/download-artifact@v6
+        with:
+          name: Mozc64_universal.msi
+          path: release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Prepare release assets
+        if: steps.release_tag.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source="release/Mozc64.msi"
+          installer="release/MozkeyDate-Windows.msi"
+          checksum="${installer}.sha256"
+
+          [[ -f "$source" ]] || {
+            echo "Universal MSI was not found: $source" >&2
+            exit 1
+          }
+
+          mv "$source" "$installer"
+          hash="$(sha256sum "$installer" | awk '{print $1}')"
+          printf '%s  %s\n' "$hash" "$(basename "$installer")" > "$checksum"
+
+      - name: Publish GitHub Release
+        if: steps.release_tag.outputs.should_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          assets=(
+            "release/MozkeyDate-Windows.msi"
+            "release/MozkeyDate-Windows.msi.sha256"
+            "tools/windows/update-mozkey-date.ps1"
+            "tools/windows/update-mozkey-date.cmd"
+          )
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Mozkey Date $RELEASE_TAG" \
+              --generate-notes \
+              --verify-tag
+          fi
