@@ -1,0 +1,42 @@
+name: Apply short month/day candidates
+
+on:
+  push:
+    branches:
+      - feature/month-day-short-candidates
+
+permissions:
+  contents: write
+
+concurrency:
+  group: month-day-short-candidates
+  cancel-in-progress: true
+
+jobs:
+  apply-and-test:
+    if: ${{ !contains(github.event.head_commit.message, '[date-patch-applied]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Apply patch
+        run: python3 tools/patch_month_day_short_candidates.py
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libibus-1.0-dev qt6-base-dev
+
+      - name: Test date rewriter
+        working-directory: src
+        run: bazelisk test //rewriter:date_rewriter_test -c dbg --test_output=errors
+
+      - name: Commit product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/rewriter/date_rewriter.cc src/rewriter/date_rewriter_test.cc
+          git commit -m "[date-patch-applied] Add short month/day date candidates"
+          git push
