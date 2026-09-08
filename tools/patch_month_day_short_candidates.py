@@ -41,6 +41,20 @@ source = replace_once(
 
 source = replace_once(
     source,
+    """std::optional<ParsedDateExpression> GetSeparatedDateExpression(\n    const composer::ComposerData& composer, const Segments& segments) {\n""",
+    """std::optional<RewriterInterface::ResizeSegmentsRequest>\nGetSeparatedDateResizeRequest(const ConversionRequest& request,\n                              const Segments& segments) {\n  if (segments.conversion_segments_size() <= 1) {\n    return std::nullopt;\n  }\n\n  std::string combined_key;\n  size_t raw_key_len = 0;\n  for (const Segment& segment : segments.conversion_segments()) {\n    combined_key.append(segment.key());\n    raw_key_len += segment.key_len();\n  }\n\n  const size_t key_len = Util::CharsLen(combined_key);\n  if (key_len == 0 || key_len > std::numeric_limits<uint8_t>::max()) {\n    return std::nullopt;\n  }\n\n  std::optional<ParsedDateExpression> parsed =\n      ParseSeparatedDateExpression(combined_key);\n  if (!parsed) {\n    parsed = ParseSeparatedDateExpression(\n        request.composer().GetRawSubString(0, raw_key_len));\n  }\n  if (!parsed) {\n    return std::nullopt;\n  }\n\n  if (!parsed->has_year) {\n    const absl::TimeZone tz = Clock::GetTimeZone();\n    const uint32_t current_year = static_cast<uint32_t>(\n        absl::ToCivilDay(Clock::GetAbslTime(), tz).year());\n    if (!IsValidDate(current_year, parsed->month, parsed->day)) {\n      return std::nullopt;\n    }\n  }\n\n  return RewriterInterface::ResizeSegmentsRequest{\n      .segment_index = 0,\n      .segment_sizes = {static_cast<uint8_t>(key_len), 0, 0, 0, 0, 0, 0, 0},\n  };\n}\n\nstd::optional<ParsedDateExpression> GetSeparatedDateExpression(\n    const composer::ComposerData& composer, const Segments& segments) {\n""",
+    "separated-date resize helper",
+)
+
+source = replace_once(
+    source,
+    """  for (size_t segment_index = 0;\n       segment_index < segments.conversion_segments_size(); ++segment_index) {\n""",
+    """  if (std::optional<RewriterInterface::ResizeSegmentsRequest>\n          resize_request = GetSeparatedDateResizeRequest(request, segments);\n      resize_request.has_value()) {\n    return resize_request;\n  }\n\n  for (size_t segment_index = 0;\n       segment_index < segments.conversion_segments_size(); ++segment_index) {\n""",
+    "resize request integration",
+)
+
+source = replace_once(
+    source,
     """  if (has_explicit_date_input) {\n    int raw_candidate_index = -1;\n""",
     """  if (has_explicit_date_input) {\n    results.erase(\n        std::remove_if(results.begin(), results.end(),\n                       [&](const DateCandidate& item) {\n                         return item.candidate == raw_input;\n                       }),\n        results.end());\n    int raw_candidate_index = -1;\n""",
     "raw candidate dedupe",
@@ -51,6 +65,13 @@ source_path.write_text(source, encoding="utf-8")
 
 test_path = Path("src/rewriter/date_rewriter_test.cc")
 test = test_path.read_text(encoding="utf-8")
+
+test = replace_once(
+    test,
+    """TEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {\n""",
+    """TEST_F(DateRewriterTest, AtokStyleSeparatedDateResize) {\n  ClockMock mock_clock(ParseTimeOrDie(\"2026-09-08T12:00:00Z\"));\n  Clock::SetClockForUnitTest(&mock_clock);\n\n  Segments segments;\n  AppendSegment(\"9\", \"9\", &segments);\n  AppendSegment(\"・\", \"・\", &segments);\n  AppendSegment(\"8\", \"8\", &segments);\n\n  auto table = std::make_shared<composer::Table>();\n  const commands::Request command_request;\n  const config::Config config;\n  composer::Composer composer(table, command_request, config);\n  composer.InsertCharacter(\"9/8\");\n  const ConversionRequest request =\n      ConversionRequestBuilder().SetComposer(composer).Build();\n\n  DateRewriter rewriter;\n  const auto resize_request =\n      rewriter.CheckResizeSegmentsRequest(request, segments);\n  ASSERT_TRUE(resize_request.has_value());\n  EXPECT_EQ(resize_request->segment_index, 0);\n  EXPECT_EQ(resize_request->segment_sizes[0], 3);\n\n  Clock::SetClockForUnitTest(nullptr);\n}\n\nTEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {\n""",
+    "separated-date resize test",
+)
 
 test = replace_once(
     test,
