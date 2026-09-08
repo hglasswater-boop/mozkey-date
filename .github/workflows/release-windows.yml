@@ -100,8 +100,8 @@ jobs:
           assets=(
             "release/MozkeyDate-Windows.msi"
             "release/MozkeyDate-Windows.msi.sha256"
-            "tools/windows/update-mozkey-date.ps1"
-            "tools/windows/update-mozkey-date.cmd"
+            "src/win32/installer/updater/update-mozkey-date.ps1"
+            "src/win32/installer/updater/update-mozkey-date.cmd"
           )
 
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
