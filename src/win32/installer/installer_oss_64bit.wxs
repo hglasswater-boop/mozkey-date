@@ -151,6 +151,7 @@
       <ComponentRef Id="MozcCacheService" />
       <ComponentRef Id="MozcRenderer" />
       <ComponentRef Id="MozcTool" />
+      <ComponentRef Id="MozkeyUpdater" />
       <?if $(var.VSConfigurationName) = "Release" ?>
         <ComponentRef Id="msvcp140" />
         <ComponentRef Id="msvcp140_1" />
@@ -309,6 +310,16 @@
           <File Id="mozc_tool.exe" Name="mozc_tool.exe" DiskId="1" Checksum="yes" Source="$(var.MozcToolPath)" Vital="yes" KeyPath="yes" />
         </Component>
 
+        <Directory Id="MozkeyUpdaterDir" Name="updater">
+          <Component Id="MozkeyUpdater">
+            <File Id="MozkeyUpdaterPs1" Name="update-mozkey-date.ps1" DiskId="1" Source="$(var.UpdaterPs1Path)" Vital="yes" />
+            <File Id="MozkeyUpdaterCmd" Name="update-mozkey-date.cmd" DiskId="1" Source="$(var.UpdaterCmdPath)" Vital="yes" KeyPath="yes">
+              <Shortcut Id="MozkeyUpdateShortcut" Directory="MozkeyProgramMenuDir" Name="Mozkey Date を更新" Description="Mozkey Date の最新版を確認して更新します" WorkingDirectory="MozkeyUpdaterDir" Icon="add_remove_program_icon.ico" />
+            </File>
+            <RemoveFolder Id="RemoveMozkeyProgramMenuDir" Directory="MozkeyProgramMenuDir" On="uninstall" />
+          </Component>
+        </Directory>
+
         <Component Id="ZenzScorer">
           <File Id="mozc_zenz_scorer_exe" Name="mozc_zenz_scorer.exe" DiskId="1" Checksum="yes" Source="$(var.ZenzScorerPath)" Vital="yes" KeyPath="yes" />
         </Component>
@@ -406,6 +417,10 @@
           <?endif?>
         </Directory>
       </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="MozkeyProgramMenuDir" Name="Mozkey Date" />
     </StandardDirectory>
 
     <!--

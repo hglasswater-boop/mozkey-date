@@ -20,13 +20,15 @@ git push origin v0.1.0
 
 ## Windows で更新する
 
-初回だけ Release から `update-mozkey-date.ps1` と `update-mozkey-date.cmd` を同じフォルダーへ保存します。その後は `update-mozkey-date.cmd` を実行すると、最新 Release の MSI を取得し、SHA-256 を検証してから更新します。
+MSI を一度インストールすると、スタートメニューの `Mozkey Date` フォルダーに **Mozkey Date を更新** が追加されます。これを実行すると、最新 Release の MSI を取得し、SHA-256 を検証してから更新します。更新スクリプトは MSI に同梱されるため、初回に手動で保存する必要はありません。
 
-同じ Release を再インストールしたい場合は PowerShell から次のように実行します。
+同じ Release を再インストールしたい場合は PowerShell から、インストール先の updater を `-Force` 付きで実行します。
 
 ```powershell
-.\update-mozkey-date.ps1 -Force
+& "$env:ProgramFiles\Mozc\updater\update-mozkey-date.ps1" -Force
 ```
+
+Release には `update-mozkey-date.ps1` と `update-mozkey-date.cmd` も引き続き添付するため、MSI をまだ導入していない環境では手動実行もできます。
 
 無人インストールに寄せる場合は `-Quiet` も指定できます。UAC の昇格確認は Windows 側で表示されます。
 

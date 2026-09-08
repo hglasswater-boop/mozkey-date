@@ -151,6 +151,8 @@ def run_wix4(args) -> None:
   zenz_scorer = pathlib.Path(args.zenz_scorer).resolve()
   zenz_llama_server = pathlib.Path(args.zenz_llama_server).resolve()
   zenz_model = pathlib.Path(args.zenz_model).resolve()
+  updater_ps1 = pathlib.Path(args.updater_ps1).resolve()
+  updater_cmd = pathlib.Path(args.updater_cmd).resolve()
 
   wix_path = pathlib.Path(args.wix_path).resolve()
 
@@ -197,6 +199,8 @@ def run_wix4(args) -> None:
       '-define', f'ZenzScorerPath={zenz_scorer}',
       '-define', f'ZenzLlamaServerPath={zenz_llama_server}',
       '-define', f'ZenzModelPath={zenz_model}',
+      '-define', f'UpdaterPs1Path={updater_ps1}',
+      '-define', f'UpdaterCmdPath={updater_cmd}',
       '-define', f'DocumentsDir={document_dir}',
       '-define', f'QtDir={qt_dir}',
       '-define', 'QtVer=6',
@@ -232,6 +236,8 @@ def main():
   parser.add_argument('--zenz_scorer', type=str)
   parser.add_argument('--zenz_llama_server', type=str)
   parser.add_argument('--zenz_model', type=str)
+  parser.add_argument('--updater_ps1', type=str)
+  parser.add_argument('--updater_cmd', type=str)
   parser.add_argument('--icon_path', type=str)
   parser.add_argument('--credit_file', type=str)
   parser.add_argument('--qt_core_dll', type=str)
