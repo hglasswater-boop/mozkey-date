@@ -32,12 +32,19 @@
 #ifndef MOZC_GUI_CONFIG_DIALOG_CONFIG_DIALOG_H_
 #define MOZC_GUI_CONFIG_DIALOG_CONFIG_DIALOG_H_
 
-#include <QObject>
-#include <QTimer>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
-#include <cstdint>
+
+#include <QCheckBox>
+#include <QCoreApplication>
+#include <QFrame>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QObject>
+#include <QTimer>
 
 #include "client/client_interface.h"
 #include "gui/config_dialog/ui_config_dialog.h"
@@ -46,7 +53,88 @@
 namespace mozc {
 namespace gui {
 
-class ConfigDialog : public QDialog, private Ui::ConfigDialog {
+// Product-specific additions to the generated Qt Designer UI.
+//
+// Keeping this in a thin wrapper lets upstream config_dialog.ui stay close to
+// Mozc while still giving Mozkey a scalable place for built-in dictionaries.
+// The existing use_t13n_conversion setting is used as the persisted backing
+// flag for compatibility. The old Katakana-to-English checkbox is hidden and
+// replaced by the clearer English word dictionary entry below.
+class MozkeyConfigDialogUi : public Ui::ConfigDialog {
+ public:
+  void setupUi(QDialog *dialog) {
+    Ui::ConfigDialog::setupUi(dialog);
+
+    auto *header = new QFrame(dictionaryTab);
+    header->setObjectName(QStringLiteral("builtInDictionaryHeader"));
+    header->setFrameShape(QFrame::NoFrame);
+    auto *header_layout = new QHBoxLayout(header);
+    header_layout->setContentsMargins(9, 9, 9, 9);
+    header_layout->setSpacing(6);
+
+    auto *title = new QLabel(header);
+    title->setObjectName(QStringLiteral("builtInDictionaryLabel"));
+    title->setText(QCoreApplication::translate("ConfigDialog",
+                                               "Built-in dictionaries"));
+    header_layout->addWidget(title);
+
+    auto *line = new QFrame(header);
+    line->setObjectName(QStringLiteral("builtInDictionaryLine"));
+    line->setFrameShape(QFrame::HLine);
+    line->setFrameShadow(QFrame::Sunken);
+    header_layout->addWidget(line, 1);
+
+    auto *group = new QFrame(dictionaryTab);
+    group->setObjectName(QStringLiteral("builtInDictionaryGroup"));
+    group->setFrameShape(QFrame::NoFrame);
+    auto *group_layout = new QGridLayout(group);
+    group_layout->setContentsMargins(24, 9, 24, 9);
+    group_layout->setHorizontalSpacing(8);
+    group_layout->setVerticalSpacing(4);
+
+    englishWordDictionaryCheckBox = new QCheckBox(group);
+    englishWordDictionaryCheckBox->setObjectName(
+        QStringLiteral("englishWordDictionaryCheckBox"));
+    englishWordDictionaryCheckBox->setText(
+        QString::fromUtf8("英単語辞書"));
+    group_layout->addWidget(englishWordDictionaryCheckBox, 0, 0);
+
+    auto *description = new QLabel(group);
+    description->setObjectName(
+        QStringLiteral("englishWordDictionaryDescriptionLabel"));
+    description->setText(
+        QString::fromUtf8("日本語の読みから英単語候補を表示します"));
+    description->setWordWrap(true);
+    group_layout->addWidget(description, 1, 0, 1, 2);
+
+    // Put built-in dictionaries next to the other dictionary sections, before
+    // the usage dictionary. This leaves room for adding more built-in
+    // dictionary rows later without changing the overall dialog structure.
+    int insert_index = dictionaryTabLayout->indexOf(usageDictionaryHeader);
+    if (insert_index < 0) {
+      insert_index = dictionaryTabLayout->indexOf(specialConversionsHeader);
+    }
+    if (insert_index < 0) {
+      insert_index = dictionaryTabLayout->count();
+    }
+    dictionaryTabLayout->insertWidget(insert_index, header);
+    dictionaryTabLayout->insertWidget(insert_index + 1, group);
+
+    // Keep the existing persisted setting as a compatibility bridge. The
+    // legacy control is hidden so users see one authoritative switch.
+    englishWordDictionaryCheckBox->setChecked(
+        t13nConversionCheckBox->isChecked());
+    QObject::connect(englishWordDictionaryCheckBox, &QCheckBox::toggled,
+                     t13nConversionCheckBox, &QCheckBox::setChecked);
+    QObject::connect(t13nConversionCheckBox, &QCheckBox::toggled,
+                     englishWordDictionaryCheckBox, &QCheckBox::setChecked);
+    t13nConversionCheckBox->setVisible(false);
+  }
+
+  QCheckBox *englishWordDictionaryCheckBox = nullptr;
+};
+
+class ConfigDialog : public QDialog, private MozkeyConfigDialogUi {
   Q_OBJECT;
 
  public:
