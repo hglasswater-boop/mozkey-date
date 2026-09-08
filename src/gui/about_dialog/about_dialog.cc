@@ -129,9 +129,14 @@ AboutDialog::AboutDialog(QWidget *parent)
   SetLabelText(label_credits);
 
 #ifdef _WIN32
+  const QString current_release =
+      QString::fromStdString(Version::GetMozkeyReleaseVersion()).trimmed();
   updateButton->setEnabled(false);
+  updateStatusLabel->setText(
+      QString::fromUtf8("現在のバージョン: %1").arg(current_release));
 
-  QObject::connect(checkUpdateButton, &QPushButton::clicked, this, [this]() {
+  QObject::connect(checkUpdateButton, &QPushButton::clicked, this,
+                   [this, current_release]() {
     checkUpdateButton->setEnabled(false);
     updateButton->setEnabled(false);
     updateStatusLabel->setToolTip(QString());
@@ -145,20 +150,15 @@ AboutDialog::AboutDialog(QWidget *parent)
         "'Accept'='application/vnd.github+json'};"
         "$release=Invoke-RestMethod -Headers $headers -Uri "
         "'https://api.github.com/repos/hglasswater-boop/mozkey-date/releases/latest';"
-        "$state=Join-Path $env:LOCALAPPDATA "
-        "'MozkeyDate\\last-installed-release.txt';"
-        "$installed='';"
-        "if(Test-Path -LiteralPath $state){"
-        "$installed=(Get-Content -LiteralPath $state -Raw).Trim()};"
-        "[Console]::Out.Write(([string]$release.tag_name) + \"`n\" + "
-        "$installed);");
+        "[Console]::Out.Write([string]$release.tag_name);");
 
     QObject::connect(
         process,
         static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(
             &QProcess::finished),
         this,
-        [this, process](int exit_code, QProcess::ExitStatus exit_status) {
+        [this, process, current_release](int exit_code,
+                                         QProcess::ExitStatus exit_status) {
           checkUpdateButton->setEnabled(true);
           const QString stderr_text =
               QString::fromUtf8(process->readAllStandardError()).trimmed();
@@ -170,12 +170,8 @@ AboutDialog::AboutDialog(QWidget *parent)
             return;
           }
 
-          const QString output =
+          const QString latest =
               QString::fromUtf8(process->readAllStandardOutput()).trimmed();
-          const QStringList lines =
-              output.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
-          const QString latest = lines.value(0).trimmed();
-          const QString installed = lines.value(1).trimmed();
           if (latest.isEmpty()) {
             updateStatusLabel->setText(
                 QString::fromUtf8("最新バージョンを取得できませんでした。"));
@@ -183,14 +179,14 @@ AboutDialog::AboutDialog(QWidget *parent)
             return;
           }
 
-          if (!installed.isEmpty() && installed == latest) {
+          if (!current_release.isEmpty() && current_release == latest) {
             updateStatusLabel->setText(
                 QString::fromUtf8("最新版です（%1）").arg(latest));
             updateButton->setEnabled(false);
-          } else if (!installed.isEmpty()) {
+          } else if (!current_release.isEmpty()) {
             updateStatusLabel->setText(
                 QString::fromUtf8("更新があります: %1 → %2")
-                    .arg(installed, latest));
+                    .arg(current_release, latest));
             updateButton->setEnabled(true);
           } else {
             updateStatusLabel->setText(
