@@ -1444,6 +1444,13 @@ bool DateRewriter::RewriteConsecutiveDigits(
     return false;
   }
 
+  // Preserve valid separated-date punctuation explicitly typed by the user.
+  // The converter may otherwise normalize '/' to '・'.
+  const std::string raw_input =
+      composer.GetRawSubString(0, segment->key_len());
+  const bool has_explicit_date_input =
+      ParseSeparatedDateExpression(raw_input).has_value();
+
   // Generate candidates.  The results contain <candidate, description> pairs.
   std::optional<std::string> number_str;
   std::vector<DateCandidate> results;
@@ -1480,6 +1487,26 @@ bool DateRewriter::RewriteConsecutiveDigits(
   }
   if (results.empty()) {
     return false;
+  }
+
+  if (has_explicit_date_input) {
+    int raw_candidate_index = -1;
+    for (size_t i = 0; i < segment->candidates_size(); ++i) {
+      if (segment->candidate(i).value == raw_input) {
+        raw_candidate_index = static_cast<int>(i);
+        break;
+      }
+    }
+    if (raw_candidate_index >= 0) {
+      if (raw_candidate_index > 0) {
+        segment->move_candidate(raw_candidate_index, 0);
+      }
+      insert_position = 1;
+    } else {
+      results.insert(results.begin(),
+                     DateCandidate(raw_input, kDateDescription));
+      insert_position = 0;
+    }
   }
 
   // The existence of segment->candidate(0) or segment->meta_candidate(0) is

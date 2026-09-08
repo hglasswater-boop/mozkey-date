@@ -687,6 +687,26 @@ TEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {
                   ValueAndDescAre("令和8年9月8日", kDesc),
                   ValueAndDescAre("火曜日", kDesc),
               }));
+  composer::Composer raw_composer(table, command_request, config);
+  raw_composer.InsertCharacter("9/8");
+  const ConversionRequest raw_input_request =
+      ConversionRequestBuilder()
+          .SetComposer(raw_composer)
+          .SetConfig(config)
+          .Build();
+
+  // The converter may normalize the slash to a middle dot.  The raw input
+  // still represents the user's explicit intent and must win.
+  InitSegment("9・8", "9・8", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(raw_input_request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+
+  // Do not duplicate an exact literal candidate that is already present.
+  InitSegment("9・8", "9/8", &segments);
+  EXPECT_TRUE(rewriter.Rewrite(raw_input_request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
   Clock::SetClockForUnitTest(nullptr);
 }
 
