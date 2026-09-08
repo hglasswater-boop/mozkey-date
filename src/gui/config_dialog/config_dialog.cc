@@ -48,6 +48,8 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QListWidgetItem>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSizePolicy>
@@ -375,10 +377,135 @@ ConfigDialog::ConfigDialog()
   zenzLiveCorrectionMinKeyLengthSpinBox->setSuffix(QString::fromUtf8(" 文字"));
 
   dateConversionFormatLineEdit->setMaxLength(128);
+  dateConversionFormatListWidget->setSelectionMode(
+      QAbstractItemView::SingleSelection);
+  dateConversionFormatListWidget->setDragDropMode(
+      QAbstractItemView::InternalMove);
+  dateConversionFormatListWidget->setDefaultDropAction(Qt::MoveAction);
+  dateConversionFormatListWidget->setEditTriggers(
+      QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+
+  const auto update_date_format_preview = [this]() {
+    QString format;
+    if (QListWidgetItem *item =
+            dateConversionFormatListWidget->currentItem()) {
+      format = item->text().trimmed();
+    } else {
+      format = dateConversionFormatLineEdit->text().trimmed();
+    }
+    if (format.isEmpty()) {
+      format = QStringLiteral("{YEAR}/{MONTH}/{DATE}");
+    }
+    QString preview = format;
+    preview.replace(QStringLiteral("{YEAR}"), QStringLiteral("2026"));
+    preview.replace(QStringLiteral("{MONTH}"), QStringLiteral("09"));
+    preview.replace(QStringLiteral("{DATE}"), QStringLiteral("08"));
+    preview.replace(QStringLiteral("{HOUR}"), QStringLiteral("16"));
+    preview.replace(QStringLiteral("{MINUTE}"), QStringLiteral("02"));
+    dateConversionFormatPreviewLabel->setText(
+        QString::fromUtf8("プレビュー: %1").arg(preview));
+  };
+
   QObject::connect(dateConversionCheckBox, &QCheckBox::toggled,
-                   dateConversionFormatLabel, &QWidget::setEnabled);
-  QObject::connect(dateConversionCheckBox, &QCheckBox::toggled,
-                   dateConversionFormatLineEdit, &QWidget::setEnabled);
+                   dateConversionFormatEditorWidget, &QWidget::setEnabled);
+  QObject::connect(
+      dateConversionFormatAddButton, &QPushButton::clicked, this,
+      [this, update_date_format_preview]() {
+        const QString format =
+            dateConversionFormatLineEdit->text().trimmed();
+        if (format.isEmpty()) {
+          return;
+        }
+        if (!dateConversionFormatListWidget
+                 ->findItems(format, Qt::MatchExactly)
+                 .isEmpty()) {
+          return;
+        }
+        auto *item = new QListWidgetItem(format, dateConversionFormatListWidget);
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
+        dateConversionFormatListWidget->setCurrentItem(item);
+        update_date_format_preview();
+      });
+  QObject::connect(
+      dateConversionFormatEditButton, &QPushButton::clicked, this,
+      [this, update_date_format_preview]() {
+        QListWidgetItem *item = dateConversionFormatListWidget->currentItem();
+        if (item == nullptr) {
+          return;
+        }
+        const QString format =
+            dateConversionFormatLineEdit->text().trimmed();
+        if (!format.isEmpty()) {
+          item->setText(format);
+        } else {
+          dateConversionFormatListWidget->editItem(item);
+        }
+        update_date_format_preview();
+      });
+  QObject::connect(
+      dateConversionFormatDeleteButton, &QPushButton::clicked, this,
+      [this, update_date_format_preview]() {
+        const int row = dateConversionFormatListWidget->currentRow();
+        if (row < 0) {
+          return;
+        }
+        delete dateConversionFormatListWidget->takeItem(row);
+        if (dateConversionFormatListWidget->count() > 0) {
+          dateConversionFormatListWidget->setCurrentRow(
+              std::min(row, dateConversionFormatListWidget->count() - 1));
+        } else {
+          dateConversionFormatLineEdit->clear();
+        }
+        update_date_format_preview();
+      });
+  QObject::connect(
+      dateConversionFormatUpButton, &QPushButton::clicked, this,
+      [this, update_date_format_preview]() {
+        const int row = dateConversionFormatListWidget->currentRow();
+        if (row <= 0) {
+          return;
+        }
+        QListWidgetItem *item = dateConversionFormatListWidget->takeItem(row);
+        dateConversionFormatListWidget->insertItem(row - 1, item);
+        dateConversionFormatListWidget->setCurrentItem(item);
+        update_date_format_preview();
+      });
+  QObject::connect(
+      dateConversionFormatDownButton, &QPushButton::clicked, this,
+      [this, update_date_format_preview]() {
+        const int row = dateConversionFormatListWidget->currentRow();
+        if (row < 0 || row >= dateConversionFormatListWidget->count() - 1) {
+          return;
+        }
+        QListWidgetItem *item = dateConversionFormatListWidget->takeItem(row);
+        dateConversionFormatListWidget->insertItem(row + 1, item);
+        dateConversionFormatListWidget->setCurrentItem(item);
+        update_date_format_preview();
+      });
+  QObject::connect(
+      dateConversionFormatListWidget, &QListWidget::currentRowChanged, this,
+      [this, update_date_format_preview](int row) {
+        if (row >= 0) {
+          dateConversionFormatLineEdit->setText(
+              dateConversionFormatListWidget->item(row)->text());
+        }
+        update_date_format_preview();
+      });
+  QObject::connect(
+      dateConversionFormatListWidget, &QListWidget::itemChanged, this,
+      [this, update_date_format_preview](QListWidgetItem *item) {
+        if (item == dateConversionFormatListWidget->currentItem()) {
+          dateConversionFormatLineEdit->setText(item->text());
+        }
+        update_date_format_preview();
+      });
+  QObject::connect(
+      dateConversionFormatLineEdit, &QLineEdit::textChanged, this,
+      [this, update_date_format_preview](const QString &) {
+        if (dateConversionFormatListWidget->currentItem() == nullptr) {
+          update_date_format_preview();
+        }
+      });
 
   zenzLiveCorrectionProfileLineEdit->setMaxLength(128);
   zenzLiveCorrectionTopicLineEdit->setMaxLength(128);
@@ -2954,10 +3081,29 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
   SET_CHECKBOX(symbolConversionCheckBox, use_symbol_conversion);
   SET_CHECKBOX(emoticonConversionCheckBox, use_emoticon_conversion);
   SET_CHECKBOX(dateConversionCheckBox, use_date_conversion);
-  dateConversionFormatLineEdit->setText(
-      ToQString(config.date_conversion_custom_format()));
-  dateConversionFormatLabel->setEnabled(config.use_date_conversion());
-  dateConversionFormatLineEdit->setEnabled(config.use_date_conversion());
+  dateConversionFormatListWidget->clear();
+  if (config.date_conversion_custom_formats_size() > 0) {
+    for (const std::string &format :
+         config.date_conversion_custom_formats()) {
+      if (format.empty()) {
+        continue;
+      }
+      auto *item = new QListWidgetItem(
+          ToQString(format), dateConversionFormatListWidget);
+      item->setFlags(item->flags() | Qt::ItemIsEditable);
+    }
+  } else if (!config.date_conversion_custom_format().empty()) {
+    auto *item = new QListWidgetItem(
+        ToQString(config.date_conversion_custom_format()),
+        dateConversionFormatListWidget);
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+  }
+  if (dateConversionFormatListWidget->count() > 0) {
+    dateConversionFormatListWidget->setCurrentRow(0);
+  } else {
+    dateConversionFormatLineEdit->clear();
+  }
+  dateConversionFormatEditorWidget->setEnabled(config.use_date_conversion());
   SET_CHECKBOX(emojiConversionCheckBox, use_emoji_conversion);
   SET_CHECKBOX(numberConversionCheckBox, use_number_conversion);
   SET_CHECKBOX(calculatorCheckBox, use_calculator);
@@ -3209,8 +3355,26 @@ void ConfigDialog::ConvertToProto(config::Config *config) const {
   GET_CHECKBOX(symbolConversionCheckBox, use_symbol_conversion);
   GET_CHECKBOX(emoticonConversionCheckBox, use_emoticon_conversion);
   GET_CHECKBOX(dateConversionCheckBox, use_date_conversion);
-  config->set_date_conversion_custom_format(
-      dateConversionFormatLineEdit->text().trimmed().toUtf8().constData());
+  config->clear_date_conversion_custom_formats();
+  std::string first_date_conversion_format;
+  for (int i = 0; i < dateConversionFormatListWidget->count(); ++i) {
+    const QString format =
+        dateConversionFormatListWidget->item(i)->text().trimmed();
+    if (format.isEmpty()) {
+      continue;
+    }
+    const QByteArray utf8 = format.toUtf8();
+    const std::string value(utf8.constData(), utf8.size());
+    if (first_date_conversion_format.empty()) {
+      first_date_conversion_format = value;
+    }
+    config->add_date_conversion_custom_formats(value);
+  }
+  if (first_date_conversion_format.empty()) {
+    config->clear_date_conversion_custom_format();
+  } else {
+    config->set_date_conversion_custom_format(first_date_conversion_format);
+  }
   GET_CHECKBOX(emojiConversionCheckBox, use_emoji_conversion);
   GET_CHECKBOX(numberConversionCheckBox, use_number_conversion);
   GET_CHECKBOX(calculatorCheckBox, use_calculator);

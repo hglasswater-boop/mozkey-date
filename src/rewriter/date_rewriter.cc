@@ -1750,7 +1750,20 @@ bool DateRewriter::Rewrite(const ConversionRequest& request,
   bool modified = false;
   std::vector<std::string> extra_date_formats =
     GetExtraFormats(dictionary_, kExtraDateFormatKey);
-  if (!request.config().date_conversion_custom_format().empty()) {
+  if (request.config().date_conversion_custom_formats_size() > 0) {
+    std::vector<std::string> configured_formats;
+    configured_formats.reserve(
+        request.config().date_conversion_custom_formats_size());
+    for (const std::string &format :
+         request.config().date_conversion_custom_formats()) {
+      if (!format.empty()) {
+        configured_formats.push_back(ConvertExtraFormat(format));
+      }
+    }
+    extra_date_formats.insert(extra_date_formats.begin(),
+                              configured_formats.begin(),
+                              configured_formats.end());
+  } else if (!request.config().date_conversion_custom_format().empty()) {
     extra_date_formats.insert(
         extra_date_formats.begin(),
         ConvertExtraFormat(request.config().date_conversion_custom_format()));

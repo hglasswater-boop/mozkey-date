@@ -799,30 +799,6 @@
               </property>
              </widget>
             </item>
-            <item row="1" column="1">
-             <widget class="QCheckBox" name="dateConversionCheckBox">
-              <property name="text">
-               <string>Date/time conversion</string>
-              </property>
-             </widget>
-            </item>
-            <item row="5" column="0">
-   <widget class="QLabel" name="dateConversionFormatLabel">
-    <property name="text">
-     <string>Date output format</string>
-    </property>
-   </widget>
-  </item>
-  <item row="5" column="1">
-   <widget class="QLineEdit" name="dateConversionFormatLineEdit">
-    <property name="toolTip">
-     <string>Preferred date candidate format. Available placeholders: {YEAR}, {MONTH}, {DATE}. Example: {YEAR}-{MONTH}-{DATE}</string>
-    </property>
-    <property name="placeholderText">
-     <string>{YEAR}/{MONTH}/{DATE}</string>
-    </property>
-   </widget>
-  </item>
             <item row="0" column="1">
              <widget class="QCheckBox" name="emojiConversionCheckBox">
               <property name="text">
@@ -842,6 +818,173 @@
             <size>
              <width>20</width>
              <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="dateTab">
+        <attribute name="title">
+         <string>日付</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="dateTabLayout">
+         <property name="leftMargin">
+          <number>18</number>
+         </property>
+         <property name="topMargin">
+          <number>18</number>
+         </property>
+         <property name="rightMargin">
+          <number>18</number>
+         </property>
+         <property name="bottomMargin">
+          <number>18</number>
+         </property>
+         <item>
+          <widget class="QCheckBox" name="dateConversionCheckBox">
+           <property name="text">
+            <string>日付・時刻変換を有効にする</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="dateConversionFormatLabel">
+           <property name="text">
+            <string>優先する日付フォーマット（上ほど候補の優先度が高くなります）</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="dateConversionFormatEditorWidget">
+           <layout class="QVBoxLayout" name="dateConversionFormatEditorLayout">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QListWidget" name="dateConversionFormatListWidget">
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>110</height>
+               </size>
+              </property>
+              <property name="toolTip">
+               <string>ドラッグして並べ替えできます。上の形式ほど変換候補で優先されます。</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="dateConversionFormatInputLayout">
+              <item>
+               <widget class="QLineEdit" name="dateConversionFormatLineEdit">
+                <property name="toolTip">
+                 <string>使用可能: {YEAR}, {MONTH}, {DATE}. 例: {YEAR}-{MONTH}-{DATE}</string>
+                </property>
+                <property name="placeholderText">
+                 <string>{YEAR}/{MONTH}/{DATE}</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="dateConversionFormatAddButton">
+                <property name="text">
+                 <string>追加</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="dateConversionFormatEditButton">
+                <property name="text">
+                 <string>編集</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="dateConversionFormatDeleteButton">
+                <property name="text">
+                 <string>削除</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="dateConversionFormatOrderLayout">
+              <item>
+               <widget class="QPushButton" name="dateConversionFormatUpButton">
+                <property name="text">
+                 <string>↑ 上へ</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="dateConversionFormatDownButton">
+                <property name="text">
+                 <string>↓ 下へ</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="dateConversionFormatOrderSpacer">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QLabel" name="dateConversionFormatPreviewLabel">
+              <property name="text">
+               <string>プレビュー: 2026/09/08</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="dateConversionFormatExamplesLabel">
+              <property name="text">
+               <string>例: {YEAR}/{MONTH}/{DATE}  ・  {YEAR}.{MONTH}.{DATE}  ・  {YEAR}年{MONTH}月{DATE}日</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="dateConversionFormatNoteLabel">
+              <property name="text">
+               <string>ここで追加した形式は標準の日付候補より前に表示されます。</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <spacer name="dateTabBottomSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Vertical</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>20</width>
+             <height>40</height>
             </size>
            </property>
           </spacer>
