@@ -74,27 +74,31 @@ constexpr uint32_t kMozkeyDefaultDirectCommitKey =
     Config::DIRECT_COMMIT_OPEN_BRACKET |
     Config::DIRECT_COMMIT_CLOSE_BRACKET;
 
-void AddDefaultDateConversionFormats(Config* config) {
+void InitializeDateConversionFormats(Config* config) {
   if (config == nullptr ||
-      config->date_conversion_custom_formats_size() > 0 ||
-      config->has_date_conversion_custom_format()) {
+      config->date_conversion_custom_formats_initialized()) {
     return;
   }
 
-  // Keep the built-in-looking date candidates in configuration rather than
-  // hard-coding them in the rewriter. The ordered list is the product-facing
-  // source of truth, so users can remove or reorder these defaults just like
-  // any custom format.
-  config->add_date_conversion_custom_formats("{YEAR}/{MONTH}/{DATE}");
-  config->add_date_conversion_custom_formats("{YEAR}-{MONTH}-{DATE}");
-  config->add_date_conversion_custom_formats(
-      "{YEAR}年{MONTH_NOZERO}月{DATE_NOZERO}日");
+  if (config->date_conversion_custom_formats_size() == 0) {
+    if (!config->date_conversion_custom_format().empty()) {
+      // Migrate the v0.1 single-format setting without changing the user's
+      // preferred format.
+      config->add_date_conversion_custom_formats(
+          config->date_conversion_custom_format());
+    } else {
+      // Keep the built-in-looking date candidates in configuration rather than
+      // hard-coding them in the rewriter. The ordered list is the product-facing
+      // source of truth, so users can remove or reorder these defaults just like
+      // any custom format.
+      config->add_date_conversion_custom_formats("{YEAR}/{MONTH}/{DATE}");
+      config->add_date_conversion_custom_formats("{YEAR}-{MONTH}-{DATE}");
+      config->add_date_conversion_custom_formats(
+          "{YEAR}年{MONTH_NOZERO}月{DATE_NOZERO}日");
+    }
+  }
 
-  // date_conversion_custom_format is the v0.1 compatibility field. Its proto2
-  // presence is also a backward-compatible initialization marker: absent means
-  // an older profile that has never initialized the format list, while
-  // present-but-empty means the user intentionally left the new list empty.
-  config->set_date_conversion_custom_format("");
+  config->set_date_conversion_custom_formats_initialized(true);
 }
 
 // Applies Mozkey-specific product defaults only to fields that have not been
@@ -127,7 +131,6 @@ void ApplyMozkeyProductDefaults(Config* config) {
   if (!config->has_use_realtime_conversion()) {
     config->set_use_realtime_conversion(false);
   }
-  AddDefaultDateConversionFormats(config);
 }
 
 void AddCharacterFormRule(const absl::string_view group,
@@ -265,18 +268,6 @@ void ConfigHandlerImpl::SetConfigInternal(std::shared_ptr<Config> config) {
 }
 
 void ConfigHandlerImpl::SetConfig(Config config) {
-  // ConfigDialog clears the legacy compatibility value when its ordered list
-  // is empty. If the current profile has already initialized date formats,
-  // preserve presence with an empty value so normalization can distinguish
-  // an intentional empty list from an old profile that still needs migration.
-  const std::shared_ptr<const Config> current_config = GetSharedConfig();
-  if (current_config != nullptr &&
-      current_config->has_date_conversion_custom_format() &&
-      config.date_conversion_custom_formats_size() == 0 &&
-      !config.has_date_conversion_custom_format()) {
-    config.set_date_conversion_custom_format("");
-  }
-
   const uint64_t config_hash = CityFingerprint(config.SerializeAsString());
 
   // If the wire format of config is identical to the one of the previously
@@ -339,8 +330,11 @@ void ConfigHandlerImpl::Reload() {
     input_config->Clear();  // revert to default setting
   }
 
-  // we set default config when file is broken
+  // We set product defaults when the file is missing or broken, and migrate
+  // the date-format list only while loading stored profile state. Keeping this
+  // out of generic SetConfig normalization avoids mutating unrelated callers.
   NormalizeConfig(input_config.get());
+  InitializeDateConversionFormats(input_config.get());
 
   SetConfigInternal(input_config);
 }
@@ -378,6 +372,7 @@ void ConfigHandler::GetDefaultConfig(Config* config) {
 Config ConfigHandler::GetProductDefaultConfig() {
   Config config = DefaultConfig();
   ApplyMozkeyProductDefaults(&config);
+  InitializeDateConversionFormats(&config);
   return config;
 }
 
