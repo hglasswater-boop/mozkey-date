@@ -193,8 +193,6 @@ jobs:
             "C:\Program Files (x86)\Microsoft Visual Studio\18"
           ) | Where-Object { Test-Path $_ }
 
-          New-Item -ItemType Directory -Force $expectedDir | Out-Null
-
           # Limit discovery to the known VS/VC/Redist/MSVC hierarchy instead of
           # recursively walking the complete Visual Studio installation.
           $candidates = foreach ($vsRoot in $searchRoots) {
@@ -223,12 +221,24 @@ jobs:
             throw "No x64 Visual C++ CRT redistribution directory was found."
           }
 
+          # If the runner already has exactly the path WiX expects, only verify
+          # it. Otherwise create the compatibility directory and copy the CRT.
+          $sameDir = [System.StringComparer]::OrdinalIgnoreCase.Equals(
+            $sourceDir.FullName.TrimEnd("\"),
+            $expectedDir.TrimEnd("\")
+          )
+          if (-not $sameDir) {
+            New-Item -ItemType Directory -Force $expectedDir | Out-Null
+          }
+
           foreach ($dll in $requiredDlls) {
             $source = Join-Path $sourceDir.FullName $dll
             if (-not (Test-Path $source -PathType Leaf)) {
               throw "Required CRT DLL was not found: $source"
             }
-            Copy-Item $source (Join-Path $expectedDir $dll) -Force
+            if (-not $sameDir) {
+              Copy-Item $source (Join-Path $expectedDir $dll) -Force
+            }
           }
 
       # The focused regression test shares release-mode compile outputs with
