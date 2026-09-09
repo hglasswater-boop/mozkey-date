@@ -32,6 +32,7 @@
 load("@bazel_skylib//lib:selects.bzl", "selects")
 load("//:build_defs.bzl", "mozc_py_binary")
 load("//:config.bzl", "BRANDING")
+load("//:version.bzl", "MOZKEY_MSI_PRODUCT_VERSION")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -110,6 +111,7 @@ genrule(
         "$(location :build_msi)",
         "--output=$@",
         "--version_file=$(location //base:mozc_version_txt)",
+        "--msi_product_version=" + MOZKEY_MSI_PRODUCT_VERSION,
         "--mozc_tool=$(location //gui/tool:mozc_tool_win)",
         "--mozc_renderer=$(location //renderer/win32:win32_renderer_main)",
         "--mozc_server=$(location //server:mozc_server_win)",
