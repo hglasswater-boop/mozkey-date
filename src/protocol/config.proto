@@ -429,6 +429,10 @@ message Config {
   optional bool use_zip_code_conversion = 87 [default = true];
   optional bool use_spelling_correction = 88 [default = true];
 
+  // Latin-alphabet English input assistance for mozkey-date.
+  optional bool use_english_word_dictionary = 1029 [default = true];
+  optional bool use_english_spelling_correction = 1030 [default = true];
+
   // If use_emoji_conversion is true, the user can input emoji characters
   // by converting from a query string (e.g. "いぬ → 🐶" [U+1F436]).
   // Even if it is false, users might be able to input emoji characters
