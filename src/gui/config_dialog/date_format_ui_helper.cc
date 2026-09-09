@@ -66,8 +66,6 @@ QString PreviewDateFormat(QString format) {
 }
 
 void RequestApplyButtonRefresh(QWidget* config_dialog) {
-  // EnableApplyButton is a ConfigDialog slot. Keeping this helper decoupled
-  // from ConfigDialog's private API lets the date format UI stay self-contained.
   QMetaObject::invokeMethod(config_dialog, "EnableApplyButton",
                             Qt::QueuedConnection);
 }
@@ -77,13 +75,11 @@ QPushButton* AddPartButton(QGridLayout* layout, QWidget* parent,
                            const QString& part, int row, int column,
                            int column_span = 1) {
   auto* button = new QPushButton(label, parent);
-  button->setToolTip(
-      QString::fromUtf8("編集欄へ挿入: %1").arg(part));
+  button->setToolTip(QString::fromUtf8("編集欄へ挿入: %1").arg(part));
   layout->addWidget(button, row, column, 1, column_span);
   QObject::connect(button, &QPushButton::clicked, format_edit,
                    [format_edit, part]() {
-                     // QLineEdit::insert replaces the current selection and
-                     // otherwise inserts exactly at the caret position.
+                     // insert() replaces the selection or inserts at the caret.
                      format_edit->insert(part);
                      format_edit->setFocus(Qt::OtherFocusReason);
                    });
@@ -117,20 +113,19 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
   if (auto* title = config_dialog->findChild<QLabel*>(
           QStringLiteral("dateConversionFormatLabel"))) {
     title->setText(QString::fromUtf8(
-        "優先する日付フォーマット（部品をクリックして編集できます。上ほど優先）"));
+        "優先する日付フォーマット（部品をクリックして編集。上ほど優先）"));
   }
   if (auto* examples = config_dialog->findChild<QLabel*>(
           QStringLiteral("dateConversionFormatExamplesLabel"))) {
     examples->setText(QString::fromUtf8(
         "部品をクリックすると下の編集欄のカーソル位置へ挿入されます。"
-        "挿入後は自由に文字や記号を編集できます。"));
+        "挿入後は自由に編集できます。"));
   }
 
-  format_edit->setPlaceholderText(
-      QString::fromUtf8("例: {YEAR_NOZERO}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})"));
+  format_edit->setPlaceholderText(QString::fromUtf8(
+      "例: {YEAR_NOZERO}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})"));
   format_edit->setToolTip(QString::fromUtf8(
-      "部品ボタンでひな形を作り、必要な部分だけ直接編集できます。"
-      "0サプレスは *_NOZERO、曜日は {WEEKDAY} / {WEEKDAY_LONG} です。"));
+      "部品ボタンでひな形を作り、必要な部分だけ直接編集できます。"));
 
   auto* parts_group =
       new QGroupBox(QString::fromUtf8("フォーマット部品"), editor);
@@ -141,7 +136,8 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
   parts_layout->setVerticalSpacing(6);
 
   auto* hint = new QLabel(
-      QString::fromUtf8("クリックすると編集欄へ挿入します。0埋め／0サプレスも部品ごとに選べます。"),
+      QString::fromUtf8(
+          "クリックすると編集欄へ挿入します。0埋め／0サプレスも部品ごとに選べます。"),
       parts_group);
   hint->setWordWrap(true);
   parts_layout->addWidget(hint, 0, 0, 1, 8);
@@ -149,7 +145,7 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
   parts_layout->addWidget(new QLabel(QString::fromUtf8("年"), parts_group),
                           1, 0);
   AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("2026"), QStringLiteral("{YEAR}"), 1, 1);
+                QStringLiteral("2026"), QStringLiteral("{YEAR}"), 1, 1);
   AddPartButton(parts_layout, parts_group, format_edit,
                 QString::fromUtf8("2026（0サプレス）"),
                 QStringLiteral("{YEAR_NOZERO}"), 1, 2, 2);
@@ -215,21 +211,9 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
         QString::fromUtf8("プレビュー: %1")
             .arg(PreviewDateFormat(format_edit->text().trimmed())));
   };
-
   QObject::connect(format_edit, &QLineEdit::textChanged, config_dialog,
                    [update_preview](const QString&) { update_preview(); });
 
-  // The existing ConfigDialog handlers keep the edit box synchronized with
-  // the selected list item. Refresh after the row changes so the preview
-  // follows that edit box as well.
-  QObject::connect(format_list, &QListWidget::currentRowChanged, config_dialog,
-                   [update_preview](int) {
-                     QMetaObject::invokeMethod(
-                         qApp, update_preview, Qt::QueuedConnection);
-                   });
-
-  // Existing edit/delete/reorder buttons mutate the list from ConfigDialog.
-  // Refresh Apply state after those handlers have completed as well.
   const char* mutation_buttons[] = {
       "dateConversionFormatAddButton", "dateConversionFormatEditButton",
       "dateConversionFormatDeleteButton", "dateConversionFormatUpButton",
