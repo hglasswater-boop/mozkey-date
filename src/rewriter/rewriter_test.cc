@@ -201,4 +201,35 @@ TEST_F(RewriterTest, DateFormatListFiltersUnconfiguredDateCandidates) {
   EXPECT_TRUE(HasCandidateValue(*seg, "keep-me"));
 }
 
+TEST_F(RewriterTest, EmptyInitializedDateFormatListRemovesDateCandidates) {
+  config::Config config;
+  config.set_use_date_conversion(true);
+  // Presence with an empty value is the compatibility-safe marker that the
+  // ordered date-format settings have already been initialized and are now
+  // intentionally empty.
+  config.set_date_conversion_custom_format("");
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetConfig(config).Build();
+
+  Segments segments;
+  Segment* seg = segments.push_back_segment();
+  seg->set_key("dummy-empty-date-format-filter-test");
+
+  converter::Candidate* canonical = seg->add_candidate();
+  canonical->value = "2026/09/08";
+  canonical->description = "今日の日付";
+
+  converter::Candidate* standard = seg->add_candidate();
+  standard->value = "2026年9月8日";
+  standard->description = "今日の日付";
+
+  converter::Candidate* ordinary = seg->add_candidate();
+  ordinary->value = "keep-me";
+
+  EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026/09/08"));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026年9月8日"));
+  EXPECT_TRUE(HasCandidateValue(*seg, "keep-me"));
+}
+
 }  // namespace mozc
