@@ -169,6 +169,7 @@ TEST_F(RewriterTest, DateFormatWeekdayAndZeroSuppressTokens) {
 TEST_F(RewriterTest, DateFormatListFiltersUnconfiguredDateCandidates) {
   config::Config config;
   config.set_use_date_conversion(true);
+  config.set_date_conversion_custom_formats_initialized(true);
   config.add_date_conversion_custom_formats(
       "{YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})");
   const ConversionRequest request =
@@ -204,10 +205,7 @@ TEST_F(RewriterTest, DateFormatListFiltersUnconfiguredDateCandidates) {
 TEST_F(RewriterTest, EmptyInitializedDateFormatListRemovesDateCandidates) {
   config::Config config;
   config.set_use_date_conversion(true);
-  // Presence with an empty value is the compatibility-safe marker that the
-  // ordered date-format settings have already been initialized and are now
-  // intentionally empty.
-  config.set_date_conversion_custom_format("");
+  config.set_date_conversion_custom_formats_initialized(true);
   const ConversionRequest request =
       ConversionRequestBuilder().SetConfig(config).Build();
 
