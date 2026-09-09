@@ -52,9 +52,16 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      # Daily dictionaries only need to refresh once per Japan calendar day.
-      # Restore the newest prior cache as a warm starting point on a new day so
-      # merge-ut can update instead of cloning from scratch.
+      # Keep the merge-ut working clone separate from generated daily files.
+      # This avoids duplicating a potentially large git worktree in every
+      # date-keyed dictionary cache while still making a new-day refresh cheap.
+      - name: Restore dictionary source cache
+        id: dictionary-source-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: dist/dictionary
+          key: dictionary-sources-${{ runner.os }}-v1-${{ hashFiles('tools/dictionary/import_merge_ut.ps1') }}
+
       - name: Set daily dictionary cache date
         shell: pwsh
         run: |
@@ -69,12 +76,8 @@ jobs:
         id: dictionary-cache
         uses: actions/cache/restore@v5
         with:
-          path: |
-            src/data/dictionary_koyasi/generated
-            dist/dictionary
-          key: daily-dictionary-${{ runner.os }}-${{ env.DICTIONARY_CACHE_DATE }}-v1-${{ hashFiles('tools/dictionary/**', 'src/data/dictionary_koyasi/BUILD.bazel', 'src/data/dictionary_koyasi/sample/**') }}
-          restore-keys: |
-            daily-dictionary-${{ runner.os }}-
+          path: src/data/dictionary_koyasi/generated
+          key: daily-dictionary-${{ runner.os }}-${{ env.DICTIONARY_CACHE_DATE }}-v2-${{ hashFiles('tools/dictionary/**', 'src/data/dictionary_oss/**', 'src/data/dictionary_koyasi/BUILD.bazel', 'src/data/dictionary_koyasi/sample/**') }}
 
       - name: Prepare daily dictionary
         if: steps.dictionary-cache.outputs.cache-hit != 'true'
@@ -94,13 +97,18 @@ jobs:
           $ErrorActionPreference = "Stop"
           .\tools\dictionary\use_merge_ut_profile.ps1 -Profile daily
 
+      - name: Save dictionary source cache
+        if: steps.dictionary-source-cache.outputs.cache-hit != 'true' && steps.dictionary-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: dist/dictionary
+          key: ${{ steps.dictionary-source-cache.outputs.cache-primary-key }}
+
       - name: Save daily dictionary cache
         if: steps.dictionary-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
-          path: |
-            src/data/dictionary_koyasi/generated
-            dist/dictionary
+          path: src/data/dictionary_koyasi/generated
           key: ${{ steps.dictionary-cache.outputs.cache-primary-key }}
 
       # Reuse the established key from the old Windows workflow so existing
@@ -160,16 +168,15 @@ jobs:
             Remove-Item .\src\third_party\qt_src -Recurse -Force
           }
 
-      # Bazel's disk cache is content-addressed, so restoring an older cache is
-      # safe: stale actions simply miss while unchanged Mozc dependencies hit.
+      # Use one bounded Bazel cache snapshot instead of creating a full cache
+      # archive for every commit SHA. Bazel's disk cache is content-addressed;
+      # stale actions safely miss while unchanged actions remain reusable.
       - name: Restore Bazel disk cache
         id: bazel-cache
         uses: actions/cache/restore@v5
         with:
           path: src/.bazel-disk-cache
-          key: bazel-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}-${{ github.sha }}
-          restore-keys: |
-            bazel-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}-
+          key: bazel-${{ runner.os }}-${{ runner.arch }}-v2-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}
 
       - name: Prepare CRT redist directory expected by WiX
         shell: pwsh
@@ -241,9 +248,9 @@ jobs:
             }
           }
 
-      # The focused regression test shares release-mode compile outputs with
-      # the package build that follows, so it adds coverage without a second
-      # debug compilation graph.
+      # Keep the disk cache itself bounded because GitHub Actions cache storage
+      # is shared with Qt and dependency caches. Zero idle delay lets Bazel run
+      # cache GC between the test and package invocations on ephemeral runners.
       - name: Test date rewriter
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') }}
         shell: cmd
@@ -251,7 +258,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ""
         run: |
-          bazelisk test --config release_build --disk_cache=.bazel-disk-cache //rewriter:date_rewriter_test
+          bazelisk test --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s //rewriter:date_rewriter_test
 
       - name: Build x64 package
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') }}
@@ -260,7 +267,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ""
         run: |
-          bazelisk build --config release_build --disk_cache=.bazel-disk-cache package
+          bazelisk build --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s package
 
       - name: Save x64 Bazel disk cache
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') && steps.bazel-cache.outputs.cache-hit != 'true' }}
@@ -284,7 +291,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ""
         run: |
-          bazelisk build --config release_build --config win_universal_installer --disk_cache=.bazel-disk-cache package
+          bazelisk build --config release_build --config win_universal_installer --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s package
 
       - name: Save universal Bazel disk cache
         if: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')) && steps.bazel-cache.outputs.cache-hit != 'true' }}
