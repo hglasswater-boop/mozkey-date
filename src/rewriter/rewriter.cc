@@ -277,14 +277,17 @@ bool CanFilterToConfiguredDateFormats(const config::Config& config) {
     return true;
   }
 
-  // Proto2 presence of the legacy compatibility field doubles as the
-  // initialization marker. A present-but-empty field means the user has
-  // intentionally configured an empty ordered list, so every date-format
-  // candidate should be filtered out.
-  if (!config.has_date_conversion_custom_format()) {
-    return false;
+  if (config.date_conversion_custom_formats_initialized()) {
+    // An initialized empty list is intentional. The settings list is the source
+    // of truth, so all DateRewriter-generated date-format candidates are
+    // removed in this state.
+    return true;
   }
-  return !HasDynamicTimeToken(config.date_conversion_custom_format());
+
+  // Keep direct callers that still provide only the v0.1 compatibility field
+  // working until their profile is migrated on the next ConfigHandler reload.
+  const std::string& legacy_format = config.date_conversion_custom_format();
+  return !legacy_format.empty() && !HasDynamicTimeToken(legacy_format);
 }
 
 bool MatchesConfiguredDateFormat(const std::string& format, int year, int month,
