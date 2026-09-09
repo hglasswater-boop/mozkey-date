@@ -155,6 +155,13 @@ def run_wix4(args) -> None:
   wix_path = pathlib.Path(args.wix_path).resolve()
 
   branding = args.branding
+  msi_product_version = args.msi_product_version or version.GetVersionString()
+  if branding == 'Mozc' and not args.msi_product_version:
+    raise ValueError(
+        '--msi_product_version is required for Mozkey builds so Windows '
+        'Installer can distinguish mozkey-date releases from upstream Mozkey.'
+    )
+
   upgrade_code = ''
   omaha_guid = ''
   omaha_client_key = ''
@@ -177,7 +184,7 @@ def run_wix4(args) -> None:
       'build',
       '-nologo',
       '-arch', arch,
-      '-define', f'MozcVersion={version.GetVersionString()}',
+      '-define', f'MozcVersion={msi_product_version}',
       '-define', f'UpgradeCode={upgrade_code}',
       '-define', f'OmahaGuid={omaha_guid}',
       '-define', f'OmahaClientKey={omaha_client_key}',
@@ -219,6 +226,7 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--output', type=str)
   parser.add_argument('--version_file', type=str)
+  parser.add_argument('--msi_product_version', type=str, default='')
   parser.add_argument('--mozc_tool', type=str)
   parser.add_argument('--mozc_renderer', type=str)
   parser.add_argument('--mozc_server', type=str)
