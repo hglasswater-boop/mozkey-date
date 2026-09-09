@@ -21,11 +21,11 @@
 // A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 // OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
 // SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "rewriter/rewriter.h"
 
@@ -56,6 +56,15 @@ size_t CommandCandidatesSize(const Segment& segment) {
     }
   }
   return result;
+}
+
+bool HasCandidateValue(const Segment& segment, const std::string& value) {
+  for (size_t i = 0; i < segment.candidates_size(); ++i) {
+    if (segment.candidate(i).value == value) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -135,6 +144,25 @@ TEST_F(RewriterTest, EmoticonsAboveSymbols) {
   EXPECT_NE(emoticon_index, -1);
   EXPECT_NE(symbol_index, -1);
   EXPECT_LT(emoticon_index, symbol_index);
+}
+
+TEST_F(RewriterTest, DateFormatWeekdayAndZeroSuppressTokens) {
+  const ConversionRequest request;
+  Segments segments;
+  Segment* seg = segments.push_back_segment();
+  seg->set_key("dummy-date-format-token-test");
+
+  // DateRewriter normally supplies this canonical candidate.  The custom
+  // token post-processor derives the target date from it.
+  seg->add_candidate()->value = "2026/09/08";
+  seg->add_candidate()->value =
+      "{YEAR_NOZERO}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})";
+  seg->add_candidate()->value =
+      "{YEAR_NOZERO}年{MONTH_NOZERO}月{DATE_NOZERO}日({WEEKDAY_LONG})";
+
+  EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
+  EXPECT_TRUE(HasCandidateValue(*seg, "2026/9/8(火)"));
+  EXPECT_TRUE(HasCandidateValue(*seg, "2026年9月8日(火曜日)"));
 }
 
 }  // namespace mozc
