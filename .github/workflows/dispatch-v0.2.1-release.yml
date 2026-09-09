@@ -1,0 +1,28 @@
+name: Dispatch v0.2.1 Windows release build
+
+on:
+  push:
+    branches:
+      - ops/create-v0.2.1-tag
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch universal Windows build for v0.2.1
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.2.1" --jq .object.sha)"
+          if [[ "$tag_sha" != "d9c808d1ac183ba076ff71756cb1dc28acbe030c" ]]; then
+            echo "unexpected v0.2.1 tag SHA: $tag_sha" >&2
+            exit 1
+          fi
+          gh workflow run windows.yaml --repo "$GITHUB_REPOSITORY" --ref v0.2.1 -f mode=release
+          echo "Dispatched CI for Windows release build for v0.2.1"
