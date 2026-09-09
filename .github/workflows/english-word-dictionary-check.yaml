@@ -44,14 +44,24 @@ jobs:
         run: python build_tools/build_qt.py --release --confirm_license
 
       - name: Test English word dictionary
-        shell: cmd
+        shell: pwsh
         working-directory: .\src
         env:
           ANDROID_NDK_HOME: ""
-        run: >-
-          bazelisk test --config oss_windows --config release_build
-          --test_output=errors --verbose_failures
-          //rewriter:english_word_dictionary_rewriter_test
+        run: |
+          $ErrorActionPreference = "Continue"
+          & bazelisk test --config oss_windows --config release_build --test_output=errors --verbose_failures //rewriter:english_word_dictionary_rewriter_test 2>&1 | Tee-Object -FilePath english-word-dictionary-bazel.log
+          $exitCode = $LASTEXITCODE
+          Write-Host "bazel exit code: $exitCode"
+          exit $exitCode
+
+      - name: Upload English test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: english-word-dictionary-bazel-log
+          path: src/english-word-dictionary-bazel.log
+          if-no-files-found: warn
 
       - name: Test English variants
         if: always()
