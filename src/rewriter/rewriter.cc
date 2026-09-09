@@ -71,7 +71,6 @@
 #include <TargetConditionals.h>  // for TARGET_OS_IPHONE
 #endif                           // __APPLE__
 
-
 // CommandRewriter is not tested well on Android or iOS.
 // So we temporarily disable it.
 // TODO(yukawa, team): Enable CommandRewriter on Android if necessary.
@@ -100,7 +99,6 @@
 // HistoryRewriter is used only for application build because it will
 // access to the local files at the initialization timing.
 #define MOZC_USER_HISTORY_REWRITER
-
 
 #ifdef MOZC_COMMAND_REWRITER
 #include "rewriter/command_rewriter.h"
@@ -237,6 +235,14 @@ bool ReplaceAll(std::string* text, const std::string& from,
   return replaced;
 }
 
+std::string PadDecimal(int value, size_t width) {
+  std::string result = std::to_string(value);
+  if (result.size() < width) {
+    result.insert(0, width - result.size(), '0');
+  }
+  return result;
+}
+
 bool ExpandDateFormatTokens(int year, int month, int day, std::string* value) {
   static constexpr const char* kWeekdays[] = {"日", "月", "火", "水",
                                                "木", "金", "土"};
@@ -249,7 +255,60 @@ bool ExpandDateFormatTokens(int year, int month, int day, std::string* value) {
   modified |= ReplaceAll(value, "{DATE_NOZERO}", std::to_string(day));
   modified |= ReplaceAll(value, "{WEEKDAY_LONG}", weekday + "曜日");
   modified |= ReplaceAll(value, "{WEEKDAY}", weekday);
+  modified |= ReplaceAll(value, "{YEAR}", PadDecimal(year, 4));
+  modified |= ReplaceAll(value, "{MONTH}", PadDecimal(month, 2));
+  modified |= ReplaceAll(value, "{DATE}", PadDecimal(day, 2));
+  modified |= ReplaceAll(value, "{{}", "{");
   return modified;
+}
+
+bool HasDynamicTimeToken(const std::string& format) {
+  return format.find("{HOUR}") != std::string::npos ||
+         format.find("{MINUTE}") != std::string::npos;
+}
+
+bool CanFilterToConfiguredDateFormats(const config::Config& config) {
+  bool has_configured_format = false;
+  if (config.date_conversion_custom_formats_size() > 0) {
+    for (const std::string& format : config.date_conversion_custom_formats()) {
+      if (format.empty()) {
+        continue;
+      }
+      has_configured_format = true;
+      if (HasDynamicTimeToken(format)) {
+        return false;
+      }
+    }
+    return has_configured_format;
+  }
+
+  const std::string& legacy_format = config.date_conversion_custom_format();
+  return !legacy_format.empty() && !HasDynamicTimeToken(legacy_format);
+}
+
+bool MatchesConfiguredDateFormat(const std::string& format, int year, int month,
+                                 int day, const std::string& value) {
+  if (format.empty()) {
+    return false;
+  }
+  std::string expanded = format;
+  ExpandDateFormatTokens(year, month, day, &expanded);
+  return expanded == value;
+}
+
+bool IsConfiguredDateValue(const config::Config& config, int year, int month,
+                           int day, const std::string& value) {
+  if (config.date_conversion_custom_formats_size() > 0) {
+    for (const std::string& format : config.date_conversion_custom_formats()) {
+      if (MatchesConfiguredDateFormat(format, year, month, day, value)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return MatchesConfiguredDateFormat(config.date_conversion_custom_format(),
+                                     year, month, day, value);
 }
 
 // DateRewriter intentionally keeps the legacy format parser small.  This
@@ -257,6 +316,11 @@ bool ExpandDateFormatTokens(int year, int month, int day, std::string* value) {
 // DateRewriter has generated both custom and canonical date candidates.  The
 // canonical YYYY/MM/DD candidate supplies the actual target date, so the same
 // logic works for today/tomorrow as well as explicit inputs such as 9/8.
+//
+// When an ordered custom-format list exists, this rewriter also removes date
+// candidates that are not represented by that list.  This makes the settings
+// list authoritative instead of silently appending DateRewriter's fixed
+// standard formats behind the user's choices.
 class CustomDateFormatTokenRewriter final : public RewriterInterface {
  public:
   int capability(const ConversionRequest& request) const override {
@@ -295,6 +359,25 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
         if (candidate->content_value == original_value) {
           candidate->content_value = candidate->value;
         }
+        modified = true;
+      }
+
+      if (!CanFilterToConfiguredDateFormats(request.config())) {
+        continue;
+      }
+
+      for (size_t candidate_index = segment->candidates_size();
+           candidate_index > 0; --candidate_index) {
+        const size_t index = candidate_index - 1;
+        const converter::Candidate& candidate = segment->candidate(index);
+        if (candidate.description != "日付") {
+          continue;
+        }
+        if (IsConfiguredDateValue(request.config(), year, month, day,
+                                  candidate.value)) {
+          continue;
+        }
+        segment->erase_candidate(static_cast<int>(index));
         modified = true;
       }
     }
@@ -374,7 +457,7 @@ Rewriter::Rewriter(const engine::Modules& modules) {
       data_manager.GetEmojiRewriterData()));
   AddRewriter(std::make_unique<RemoveRedundantCandidateRewriter>());
   AddRewriter(make_unique_from_tuples<A11yDescriptionRewriter>(
-      data_manager.GetA11yDescriptionRewriterData()));
+      data_manager.GetEmojiRewriterData()));
 }
 
 }  // namespace mozc
