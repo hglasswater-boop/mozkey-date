@@ -74,6 +74,33 @@ constexpr uint32_t kMozkeyDefaultDirectCommitKey =
     Config::DIRECT_COMMIT_OPEN_BRACKET |
     Config::DIRECT_COMMIT_CLOSE_BRACKET;
 
+void InitializeDateConversionFormats(Config* config) {
+  if (config == nullptr ||
+      config->date_conversion_custom_formats_initialized()) {
+    return;
+  }
+
+  if (config->date_conversion_custom_formats_size() == 0) {
+    if (!config->date_conversion_custom_format().empty()) {
+      // Migrate the v0.1 single-format setting without changing the user's
+      // preferred format.
+      config->add_date_conversion_custom_formats(
+          config->date_conversion_custom_format());
+    } else {
+      // Keep the built-in-looking date candidates in configuration rather than
+      // hard-coding them in the rewriter. The ordered list is the product-facing
+      // source of truth, so users can remove or reorder these defaults just like
+      // any custom format.
+      config->add_date_conversion_custom_formats("{YEAR}/{MONTH}/{DATE}");
+      config->add_date_conversion_custom_formats("{YEAR}-{MONTH}-{DATE}");
+      config->add_date_conversion_custom_formats(
+          "{YEAR}年{MONTH_NOZERO}月{DATE_NOZERO}日");
+    }
+  }
+
+  config->set_date_conversion_custom_formats_initialized(true);
+}
+
 // Applies Mozkey-specific product defaults only to fields that have not been
 // explicitly stored.  Keep this shared by normalization and the user-facing
 // product-default accessor so that a fresh profile, an older profile missing
@@ -303,8 +330,11 @@ void ConfigHandlerImpl::Reload() {
     input_config->Clear();  // revert to default setting
   }
 
-  // we set default config when file is broken
+  // We set product defaults when the file is missing or broken, and migrate
+  // the date-format list only while loading stored profile state. Keeping this
+  // out of generic SetConfig normalization avoids mutating unrelated callers.
   NormalizeConfig(input_config.get());
+  InitializeDateConversionFormats(input_config.get());
 
   SetConfigInternal(input_config);
 }
@@ -342,6 +372,7 @@ void ConfigHandler::GetDefaultConfig(Config* config) {
 Config ConfigHandler::GetProductDefaultConfig() {
   Config config = DefaultConfig();
   ApplyMozkeyProductDefaults(&config);
+  InitializeDateConversionFormats(&config);
   return config;
 }
 

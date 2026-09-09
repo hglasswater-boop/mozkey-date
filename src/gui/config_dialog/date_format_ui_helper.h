@@ -27,39 +27,17 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// The main function of configure dialog for Mozc.
+#ifndef MOZC_GUI_CONFIG_DIALOG_DATE_FORMAT_UI_HELPER_H_
+#define MOZC_GUI_CONFIG_DIALOG_DATE_FORMAT_UI_HELPER_H_
 
-#include <QApplication>
-#include <QDialog>
-#include <QStringList>
-#include <QtGui>
-#include <string>
+class QWidget;
 
-#include "base/system_util.h"
-#include "gui/base/singleton_window_helper.h"
-#include "gui/base/util.h"
-#include "gui/config_dialog/config_dialog.h"
-#include "gui/config_dialog/date_format_ui_helper.h"
+namespace mozc::gui {
 
-int RunConfigDialog(int argc, char *argv[]) {
-  Q_INIT_RESOURCE(qrc_config_dialog);
-  auto app = mozc::gui::GuiUtil::InitQt(argc, argv);
+// Adds insertable year/month/day/weekday parts to ConfigDialog. The existing
+// free-form editor remains the primary surface for separators and literals.
+void EnhanceDateFormatControls(QWidget* config_dialog);
 
-  std::string name = "config_dialog.";
-  name += mozc::SystemUtil::GetDesktopNameAsString();
-  mozc::gui::SingletonWindowHelper window_helper(name);
-  if (window_helper.FindPreviousWindow()) {
-    // already running
-    window_helper.ActivatePreviousWindow();
-    return -1;
-  }
+}  // namespace mozc::gui
 
-  mozc::gui::GuiUtil::InstallTranslator("config_dialog");
-  mozc::gui::GuiUtil::InstallTranslator("keymap");
-  mozc::gui::ConfigDialog mozc_config;
-  mozc::gui::EnhanceDateFormatControls(&mozc_config);
-
-  mozc_config.show();
-  mozc_config.raise();
-  return app->exec();
-}
+#endif  // MOZC_GUI_CONFIG_DIALOG_DATE_FORMAT_UI_HELPER_H_

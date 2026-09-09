@@ -39,6 +39,7 @@
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "engine/modules.h"
+#include "protocol/config.pb.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 #include "testing/gunit.h"
@@ -56,6 +57,15 @@ size_t CommandCandidatesSize(const Segment& segment) {
     }
   }
   return result;
+}
+
+bool HasCandidateValue(const Segment& segment, const std::string& value) {
+  for (size_t i = 0; i < segment.candidates_size(); ++i) {
+    if (segment.candidate(i).value == value) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -135,6 +145,89 @@ TEST_F(RewriterTest, EmoticonsAboveSymbols) {
   EXPECT_NE(emoticon_index, -1);
   EXPECT_NE(symbol_index, -1);
   EXPECT_LT(emoticon_index, symbol_index);
+}
+
+TEST_F(RewriterTest, DateFormatWeekdayAndZeroSuppressTokens) {
+  const ConversionRequest request;
+  Segments segments;
+  Segment* seg = segments.push_back_segment();
+  seg->set_key("dummy-date-format-token-test");
+
+  // DateRewriter normally supplies this canonical candidate. The custom
+  // token post-processor derives the target date from it.
+  seg->add_candidate()->value = "2026/09/08";
+  seg->add_candidate()->value =
+      "{YEAR_NOZERO}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})";
+  seg->add_candidate()->value =
+      "{YEAR_NOZERO}年{MONTH_NOZERO}月{DATE_NOZERO}日({WEEKDAY_LONG})";
+
+  EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
+  EXPECT_TRUE(HasCandidateValue(*seg, "2026/9/8(火)"));
+  EXPECT_TRUE(HasCandidateValue(*seg, "2026年9月8日(火曜日)"));
+}
+
+TEST_F(RewriterTest, DateFormatListFiltersUnconfiguredDateCandidates) {
+  config::Config config;
+  config.set_use_date_conversion(true);
+  config.set_date_conversion_custom_formats_initialized(true);
+  config.add_date_conversion_custom_formats(
+      "{YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})");
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetConfig(config).Build();
+
+  Segments segments;
+  Segment* seg = segments.push_back_segment();
+  seg->set_key("dummy-date-format-filter-test");
+
+  converter::Candidate* canonical = seg->add_candidate();
+  canonical->value = "2026/09/08";
+  canonical->description = "今日の日付";
+
+  converter::Candidate* standard = seg->add_candidate();
+  standard->value = "2026-09-08";
+  standard->description = "今日の日付";
+
+  converter::Candidate* configured = seg->add_candidate();
+  configured->value =
+      "{YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})";
+  configured->description = "今日の日付";
+
+  converter::Candidate* ordinary = seg->add_candidate();
+  ordinary->value = "keep-me";
+
+  EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
+  EXPECT_TRUE(HasCandidateValue(*seg, "2026/9/8(火)"));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026/09/08"));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026-09-08"));
+  EXPECT_TRUE(HasCandidateValue(*seg, "keep-me"));
+}
+
+TEST_F(RewriterTest, EmptyInitializedDateFormatListRemovesDateCandidates) {
+  config::Config config;
+  config.set_use_date_conversion(true);
+  config.set_date_conversion_custom_formats_initialized(true);
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetConfig(config).Build();
+
+  Segments segments;
+  Segment* seg = segments.push_back_segment();
+  seg->set_key("dummy-empty-date-format-filter-test");
+
+  converter::Candidate* canonical = seg->add_candidate();
+  canonical->value = "2026/09/08";
+  canonical->description = "今日の日付";
+
+  converter::Candidate* standard = seg->add_candidate();
+  standard->value = "2026年9月8日";
+  standard->description = "今日の日付";
+
+  converter::Candidate* ordinary = seg->add_candidate();
+  ordinary->value = "keep-me";
+
+  EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026/09/08"));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026年9月8日"));
+  EXPECT_TRUE(HasCandidateValue(*seg, "keep-me"));
 }
 
 }  // namespace mozc
