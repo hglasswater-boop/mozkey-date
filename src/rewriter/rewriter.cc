@@ -268,22 +268,23 @@ bool HasDynamicTimeToken(const std::string& format) {
 }
 
 bool CanFilterToConfiguredDateFormats(const config::Config& config) {
-  bool has_configured_format = false;
   if (config.date_conversion_custom_formats_size() > 0) {
     for (const std::string& format : config.date_conversion_custom_formats()) {
-      if (format.empty()) {
-        continue;
-      }
-      has_configured_format = true;
-      if (HasDynamicTimeToken(format)) {
+      if (!format.empty() && HasDynamicTimeToken(format)) {
         return false;
       }
     }
-    return has_configured_format;
+    return true;
   }
 
-  const std::string& legacy_format = config.date_conversion_custom_format();
-  return !legacy_format.empty() && !HasDynamicTimeToken(legacy_format);
+  // Proto2 presence of the legacy compatibility field doubles as the
+  // initialization marker. A present-but-empty field means the user has
+  // intentionally configured an empty ordered list, so every date-format
+  // candidate should be filtered out.
+  if (!config.has_date_conversion_custom_format()) {
+    return false;
+  }
+  return !HasDynamicTimeToken(config.date_conversion_custom_format());
 }
 
 bool MatchesConfiguredDateFormat(const std::string& format, int year, int month,
@@ -325,10 +326,10 @@ bool IsDateCandidateDescription(const std::string& description) {
 // canonical YYYY/MM/DD candidate supplies the actual target date, so the same
 // logic works for today/tomorrow as well as explicit inputs such as 9/8.
 //
-// When an ordered custom-format list exists, this rewriter also removes date
-// candidates that are not represented by that list.  This makes the settings
-// list authoritative instead of silently appending DateRewriter's fixed
-// standard formats behind the user's choices.
+// Once the date-format settings are initialized, this rewriter also removes
+// date candidates that are not represented by the ordered list. This makes the
+// settings list authoritative instead of silently appending DateRewriter's
+// fixed standard formats behind the user's choices.
 class CustomDateFormatTokenRewriter final : public RewriterInterface {
  public:
   int capability(const ConversionRequest& request) const override {
