@@ -1,4 +1,5 @@
 name: English input assistance check
+# Revalidate the aggregate rewriter after wiring the English input dependency.
 
 on:
   workflow_dispatch:
