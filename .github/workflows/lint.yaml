@@ -29,11 +29,11 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: false
 
       - name: Run
         working-directory: ./src
         run: |
-          go install github.com/bazelbuild/buildtools/buildifier@latest
+          go install github.com/bazelbuild/buildtools/buildifier@v0.0.0-20260904073137-eaa4d125b423
           $(go env GOPATH)/bin/buildifier --mode=diff -r .
