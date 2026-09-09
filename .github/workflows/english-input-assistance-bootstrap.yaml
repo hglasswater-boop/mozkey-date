@@ -38,12 +38,11 @@ jobs:
           from pathlib import Path
           import re
 
-          # Preserve all current main config additions and add only the two
-          # English input assistance flags. 1028 is now used by the initialized
-          # date-format-list marker, so English assistance starts at 1029.
           config_path = Path('src/protocol/config.proto')
           config = config_path.read_text(encoding='utf-8')
           if 'use_english_word_dictionary' not in config:
+              # 1028 belongs to date_conversion_custom_formats_initialized on
+              # current main. Keep protobuf tags unique and stable.
               for number in (1029, 1030):
                   if re.search(r'=\s*' + str(number) + r'(?:\s|\[|;)', config):
                       raise SystemExit(f'Config field number {number} is already occupied')
@@ -58,8 +57,8 @@ jobs:
               config = config.replace(anchor, anchor + addition, 1)
               config_path.write_text(config, encoding='utf-8')
 
-          # Preserve latest main's date-format post-processing and add the new
-          # English rewriter beside the existing EnglishVariants rewriter.
+          # Preserve latest main's custom date-format rewriter and only insert
+          # English input assistance beside EnglishVariantsRewriter.
           rewriter_path = Path('src/rewriter/rewriter.cc')
           rewriter = rewriter_path.read_text(encoding='utf-8')
           include = '#include "rewriter/english_word_dictionary_rewriter.h"\n'
@@ -68,16 +67,17 @@ jobs:
               if anchor not in rewriter:
                   raise SystemExit('Could not find EnglishVariants include anchor')
               rewriter = rewriter.replace(anchor, anchor + include, 1)
-          registration = '  AddRewriter<EnglishWordDictionaryRewriter>();\n'
+
+          registration = '  AddRewriter(std::make_unique<EnglishWordDictionaryRewriter>());\n'
           if registration not in rewriter:
-              anchor = '  AddRewriter<EnglishVariantsRewriter>();\n'
+              anchor = '  AddRewriter(std::make_unique<EnglishVariantsRewriter>(pos_matcher));\n'
               if anchor not in rewriter:
-                  raise SystemExit('Could not find EnglishVariants registration anchor')
+                  raise SystemExit('Could not find current EnglishVariants registration anchor')
               rewriter = rewriter.replace(anchor, anchor + registration, 1)
           rewriter_path.write_text(rewriter, encoding='utf-8')
           PY
 
-          # Guard against accidentally restoring the old kana-to-English prototype.
+          # Never restore the old kana-to-English prototype.
           git diff -- src/rewriter/english_variants_rewriter.cc src/rewriter/english_variants_rewriter.h --exit-code
           git diff --check
 
