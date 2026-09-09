@@ -39,6 +39,7 @@
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "engine/modules.h"
+#include "protocol/config.pb.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 #include "testing/gunit.h"
@@ -163,6 +164,41 @@ TEST_F(RewriterTest, DateFormatWeekdayAndZeroSuppressTokens) {
   EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
   EXPECT_TRUE(HasCandidateValue(*seg, "2026/9/8(火)"));
   EXPECT_TRUE(HasCandidateValue(*seg, "2026年9月8日(火曜日)"));
+}
+
+TEST_F(RewriterTest, DateFormatListFiltersUnconfiguredDateCandidates) {
+  config::Config config;
+  config.set_use_date_conversion(true);
+  config.add_date_conversion_custom_formats(
+      "{YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})");
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetConfig(config).Build();
+
+  Segments segments;
+  Segment* seg = segments.push_back_segment();
+  seg->set_key("dummy-date-format-filter-test");
+
+  converter::Candidate* canonical = seg->add_candidate();
+  canonical->value = "2026/09/08";
+  canonical->description = "今日の日付";
+
+  converter::Candidate* standard = seg->add_candidate();
+  standard->value = "2026-09-08";
+  standard->description = "今日の日付";
+
+  converter::Candidate* configured = seg->add_candidate();
+  configured->value =
+      "{YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})";
+  configured->description = "今日の日付";
+
+  converter::Candidate* ordinary = seg->add_candidate();
+  ordinary->value = "keep-me";
+
+  EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
+  EXPECT_TRUE(HasCandidateValue(*seg, "2026/9/8(火)"));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026/09/08"));
+  EXPECT_FALSE(HasCandidateValue(*seg, "2026-09-08"));
+  EXPECT_TRUE(HasCandidateValue(*seg, "keep-me"));
 }
 
 }  // namespace mozc
