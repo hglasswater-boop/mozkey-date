@@ -1,0 +1,86 @@
+name: English input assistance check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/english-input-assistance-clean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: english-input-assistance-clean-check
+  cancel-in-progress: true
+
+jobs:
+  windows_check:
+    name: English input assistance on Windows
+    runs-on: windows-2025
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Restore update_deps cache
+        uses: actions/cache@v5
+        with:
+          path: src/third_party_cache
+          key: update-deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
+
+      - name: Install dependencies
+        shell: cmd
+        working-directory: .\src
+        run: python build_tools/update_deps.py
+
+      - name: Build Qt
+        shell: cmd
+        working-directory: .\src
+        run: python build_tools/build_qt.py --release --confirm_license
+
+      - name: Test English word dictionary
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: >-
+          bazelisk test --config oss_windows --config release_build
+          --test_output=errors --verbose_failures
+          //rewriter:english_word_dictionary_rewriter_test
+
+      - name: Test English variants regression
+        if: always()
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: >-
+          bazelisk test --config oss_windows --config release_build
+          --test_output=errors --verbose_failures
+          //rewriter:english_variants_rewriter_test
+
+      - name: Test rewriter integration
+        if: always()
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: >-
+          bazelisk test --config oss_windows --config release_build
+          --test_output=errors --verbose_failures
+          //rewriter:rewriter_test
+
+      - name: Build Properties dialog
+        if: always()
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: >-
+          bazelisk build --config oss_windows --config release_build
+          --verbose_failures
+          //gui/config_dialog:config_dialog
