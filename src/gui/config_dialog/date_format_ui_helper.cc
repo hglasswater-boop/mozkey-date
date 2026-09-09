@@ -21,11 +21,11 @@
 // A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 // OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
 // SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS; LOSS OF USE, DATA, OR
-// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gui/config_dialog/date_format_ui_helper.h"
 
@@ -51,7 +51,7 @@ QString PreviewDateFormat(QString format) {
     format = QStringLiteral("{YEAR}/{MONTH}/{DATE}");
   }
 
-  // Use 2026-09-08 (Tuesday) for the fixed settings preview.  Replace the
+  // Use 2026-09-08 (Tuesday) for the fixed settings preview. Replace the
   // custom tokens first, then the legacy zero-padded tokens.
   format.replace(QStringLiteral("{YEAR_NOZERO}"), QStringLiteral("2026"));
   format.replace(QStringLiteral("{MONTH_NOZERO}"), QStringLiteral("9"));
@@ -69,7 +69,7 @@ QString PreviewDateFormat(QString format) {
 }
 
 void RequestApplyButtonRefresh(QWidget* config_dialog) {
-  // EnableApplyButton is a ConfigDialog slot.  Keeping this helper decoupled
+  // EnableApplyButton is a ConfigDialog slot. Keeping this helper decoupled
   // from ConfigDialog's private API lets the builder stay self-contained.
   QMetaObject::invokeMethod(config_dialog, "EnableApplyButton",
                             Qt::QueuedConnection);
@@ -286,7 +286,8 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
 
   QObject::connect(preset_add_button, &QPushButton::clicked, config_dialog,
                    [preset_combo, add_format_if_missing]() {
-                     add_format_if_missing(preset_combo->currentData().toString());
+                     add_format_if_missing(
+                         preset_combo->currentData().toString());
                    });
   QObject::connect(builder_add_button, &QPushButton::clicked, config_dialog,
                    [build_format, add_format_if_missing]() {
@@ -295,10 +296,13 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
 
   const auto connect_builder_combo =
       [config_dialog, update_quick_preview](QComboBox* combo) {
-        QObject::connect(combo, &QComboBox::currentIndexChanged, config_dialog,
-                         [update_quick_preview](int) {
-                           update_quick_preview();
-                         });
+        QObject::connect(
+            combo,
+            static_cast<void (QComboBox::*)(int)>(
+                &QComboBox::currentIndexChanged),
+            config_dialog, [update_quick_preview](int) {
+              update_quick_preview();
+            });
       };
   connect_builder_combo(year_combo);
   connect_builder_combo(style_combo);
