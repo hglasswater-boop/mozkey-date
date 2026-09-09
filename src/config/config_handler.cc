@@ -77,7 +77,7 @@ constexpr uint32_t kMozkeyDefaultDirectCommitKey =
 void AddDefaultDateConversionFormats(Config* config) {
   if (config == nullptr ||
       config->date_conversion_custom_formats_size() > 0 ||
-      !config->date_conversion_custom_format().empty()) {
+      config->has_date_conversion_custom_format()) {
     return;
   }
 
@@ -89,6 +89,12 @@ void AddDefaultDateConversionFormats(Config* config) {
   config->add_date_conversion_custom_formats("{YEAR}-{MONTH}-{DATE}");
   config->add_date_conversion_custom_formats(
       "{YEAR}年{MONTH_NOZERO}月{DATE_NOZERO}日");
+
+  // date_conversion_custom_format is the v0.1 compatibility field. Its proto2
+  // presence is also a backward-compatible initialization marker: absent means
+  // an older profile that has never initialized the format list, while
+  // present-but-empty means the user intentionally left the new list empty.
+  config->set_date_conversion_custom_format("");
 }
 
 // Applies Mozkey-specific product defaults only to fields that have not been
@@ -259,6 +265,18 @@ void ConfigHandlerImpl::SetConfigInternal(std::shared_ptr<Config> config) {
 }
 
 void ConfigHandlerImpl::SetConfig(Config config) {
+  // ConfigDialog clears the legacy compatibility value when its ordered list
+  // is empty. If the current profile has already initialized date formats,
+  // preserve presence with an empty value so normalization can distinguish
+  // an intentional empty list from an old profile that still needs migration.
+  const std::shared_ptr<const Config> current_config = GetSharedConfig();
+  if (current_config != nullptr &&
+      current_config->has_date_conversion_custom_format() &&
+      config.date_conversion_custom_formats_size() == 0 &&
+      !config.has_date_conversion_custom_format()) {
+    config.set_date_conversion_custom_format("");
+  }
+
   const uint64_t config_hash = CityFingerprint(config.SerializeAsString());
 
   // If the wire format of config is identical to the one of the previously
