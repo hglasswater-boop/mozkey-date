@@ -21,11 +21,11 @@
 // A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 // OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
 // SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The main function of configure dialog for Mozc.
 
@@ -39,6 +39,7 @@
 #include "gui/base/singleton_window_helper.h"
 #include "gui/base/util.h"
 #include "gui/config_dialog/config_dialog.h"
+#include "gui/config_dialog/date_format_ui_helper.h"
 
 int RunConfigDialog(int argc, char *argv[]) {
   Q_INIT_RESOURCE(qrc_config_dialog);
@@ -56,6 +57,7 @@ int RunConfigDialog(int argc, char *argv[]) {
   mozc::gui::GuiUtil::InstallTranslator("config_dialog");
   mozc::gui::GuiUtil::InstallTranslator("keymap");
   mozc::gui::ConfigDialog mozc_config;
+  mozc::gui::EnhanceDateFormatControls(&mozc_config);
 
   mozc_config.show();
   mozc_config.raise();
