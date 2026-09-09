@@ -82,9 +82,9 @@ void AddDefaultDateConversionFormats(Config* config) {
   }
 
   // Keep the built-in-looking date candidates in configuration rather than
-  // hard-coding them in the rewriter.  The ordered list is the single source
-  // of truth, so users can remove or reorder these defaults just like any
-  // custom format.
+  // hard-coding them in the rewriter. The ordered list is the product-facing
+  // source of truth, so users can remove or reorder these defaults just like
+  // any custom format.
   config->add_date_conversion_custom_formats("{YEAR}/{MONTH}/{DATE}");
   config->add_date_conversion_custom_formats("{YEAR}-{MONTH}-{DATE}");
   config->add_date_conversion_custom_formats(
@@ -170,7 +170,6 @@ Config CreateDefaultConfig() {
     config.set_use_emoji_conversion(true);
   }
 
-  AddDefaultDateConversionFormats(&config);
   return config;
 }
 
