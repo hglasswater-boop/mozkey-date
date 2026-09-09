@@ -38,11 +38,6 @@ jobs:
         working-directory: .\src
         run: python build_tools/update_deps.py
 
-      - name: Build Qt
-        shell: cmd
-        working-directory: .\src
-        run: python build_tools/build_qt.py --release --confirm_license
-
       - name: Test English word dictionary
         shell: pwsh
         working-directory: .\src
@@ -84,6 +79,12 @@ jobs:
           bazelisk test --config oss_windows --config release_build
           --test_output=errors --verbose_failures
           //rewriter:rewriter_test
+
+      - name: Build Qt
+        if: always()
+        shell: cmd
+        working-directory: .\src
+        run: python build_tools/build_qt.py --release --confirm_license
 
       - name: Build Properties dialog
         if: always()
