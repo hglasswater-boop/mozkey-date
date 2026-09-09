@@ -52,9 +52,32 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      # Generating the dictionary in the build job avoids a second Windows
-      # runner plus artifact upload/download on every push.
+      # Daily dictionaries only need to refresh once per Japan calendar day.
+      # Restore the newest prior cache as a warm starting point on a new day so
+      # merge-ut can update instead of cloning from scratch.
+      - name: Set daily dictionary cache date
+        shell: pwsh
+        run: |
+          $tokyo = [System.TimeZoneInfo]::FindSystemTimeZoneById("Tokyo Standard Time")
+          $today = [System.TimeZoneInfo]::ConvertTimeFromUtc(
+            [DateTime]::UtcNow,
+            $tokyo
+          ).ToString("yyyy-MM-dd")
+          "DICTIONARY_CACHE_DATE=$today" >> $env:GITHUB_ENV
+
+      - name: Restore daily dictionary cache
+        id: dictionary-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            src/data/dictionary_koyasi/generated
+            dist/dictionary
+          key: daily-dictionary-${{ runner.os }}-${{ env.DICTIONARY_CACHE_DATE }}-v1-${{ hashFiles('tools/dictionary/**', 'src/data/dictionary_koyasi/BUILD.bazel', 'src/data/dictionary_koyasi/sample/**') }}
+          restore-keys: |
+            daily-dictionary-${{ runner.os }}-
+
       - name: Prepare daily dictionary
+        if: steps.dictionary-cache.outputs.cache-hit != 'true'
         shell: pwsh
         env:
           PYTHONUTF8: "1"
@@ -63,11 +86,31 @@ jobs:
           $ErrorActionPreference = "Stop"
           .\tools\dictionary\prepare_daily_dictionary.ps1
 
+      # use_merge_ut_profile.ps1 also updates dictionary_oss/BUILD.bazel, which
+      # is intentionally not part of the cache payload.
+      - name: Activate daily dictionary profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          .\tools\dictionary\use_merge_ut_profile.ps1 -Profile daily
+
+      - name: Save daily dictionary cache
+        if: steps.dictionary-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            src/data/dictionary_koyasi/generated
+            dist/dictionary
+          key: ${{ steps.dictionary-cache.outputs.cache-primary-key }}
+
+      # Reuse the established key from the old Windows workflow so existing
+      # download caches remain useful.
       - name: Restore dependency download cache
-        uses: actions/cache@v5
+        id: deps-cache
+        uses: actions/cache/restore@v5
         with:
           path: src/third_party_cache
-          key: update-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/build_tools/update_deps.py') }}
+          key: update_deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/build_tools/update_deps.py') }}
 
       - name: Install dependencies
         shell: cmd
@@ -75,11 +118,19 @@ jobs:
         run: |
           python build_tools/update_deps.py
 
+      - name: Save dependency download cache
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: src/third_party_cache
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
+
       # Qt is one of the most expensive fixed prerequisites. Cache the built
-      # output, not qt_src, and rebuild only when the Qt build recipe changes.
+      # output, not qt_src. Save it immediately after a successful build so a
+      # later test/package failure does not throw away 20+ minutes of work.
       - name: Restore built Qt cache
         id: qt-cache
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: |
             src/third_party/qt
@@ -93,6 +144,15 @@ jobs:
         run: |
           python build_tools/build_qt.py --release --confirm_license
 
+      - name: Save built Qt cache
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            src/third_party/qt
+            src/third_party/qt_host
+          key: ${{ steps.qt-cache.outputs.cache-primary-key }}
+
       - name: Delete Qt source tree to save disk space
         shell: pwsh
         run: |
@@ -103,7 +163,8 @@ jobs:
       # Bazel's disk cache is content-addressed, so restoring an older cache is
       # safe: stale actions simply miss while unchanged Mozc dependencies hit.
       - name: Restore Bazel disk cache
-        uses: actions/cache@v5
+        id: bazel-cache
+        uses: actions/cache/restore@v5
         with:
           path: src/.bazel-disk-cache
           key: bazel-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}-${{ github.sha }}
@@ -134,10 +195,27 @@ jobs:
 
           New-Item -ItemType Directory -Force $expectedDir | Out-Null
 
-          # Find the newest x64 CRT directory once instead of recursively
-          # scanning the whole Visual Studio tree separately for every DLL.
-          $sourceDir = Get-ChildItem -Path $searchRoots -Recurse -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match "\\x64\\Microsoft\.VC[0-9]+\.CRT$" } |
+          # Limit discovery to the known VS/VC/Redist/MSVC hierarchy instead of
+          # recursively walking the complete Visual Studio installation.
+          $candidates = foreach ($vsRoot in $searchRoots) {
+            foreach ($edition in Get-ChildItem -Path $vsRoot -Directory -ErrorAction SilentlyContinue) {
+              $msvcRoot = Join-Path $edition.FullName "VC\Redist\MSVC"
+              if (-not (Test-Path $msvcRoot)) {
+                continue
+              }
+
+              foreach ($versionDir in Get-ChildItem -Path $msvcRoot -Directory -ErrorAction SilentlyContinue) {
+                $x64Root = Join-Path $versionDir.FullName "x64"
+                if (-not (Test-Path $x64Root)) {
+                  continue
+                }
+
+                Get-ChildItem -Path $x64Root -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue
+              }
+            }
+          }
+
+          $sourceDir = $candidates |
             Sort-Object FullName -Descending |
             Select-Object -First 1
 
@@ -174,6 +252,13 @@ jobs:
         run: |
           bazelisk build --config release_build --disk_cache=.bazel-disk-cache package
 
+      - name: Save x64 Bazel disk cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') && steps.bazel-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: src/.bazel-disk-cache
+          key: ${{ steps.bazel-cache.outputs.cache-primary-key }}
+
       - name: Upload x64 MSI
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') }}
         uses: actions/upload-artifact@v6
@@ -190,6 +275,13 @@ jobs:
           ANDROID_NDK_HOME: ""
         run: |
           bazelisk build --config release_build --config win_universal_installer --disk_cache=.bazel-disk-cache package
+
+      - name: Save universal Bazel disk cache
+        if: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')) && steps.bazel-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: src/.bazel-disk-cache
+          key: ${{ steps.bazel-cache.outputs.cache-primary-key }}
 
       - name: Upload universal MSI
         if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release') }}
