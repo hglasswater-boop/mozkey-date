@@ -311,6 +311,14 @@ bool IsConfiguredDateValue(const config::Config& config, int year, int month,
                                      year, month, day, value);
 }
 
+bool IsDateCandidateDescription(const std::string& description) {
+  if (description.find("日付") != std::string::npos) {
+    return true;
+  }
+  return description.rfind("次の", 0) == 0 &&
+         description.find("曜日") != std::string::npos;
+}
+
 // DateRewriter intentionally keeps the legacy format parser small.  This
 // post-processor expands mozkey-date's additional date-format tokens after
 // DateRewriter has generated both custom and canonical date candidates.  The
@@ -370,7 +378,7 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
            candidate_index > 0; --candidate_index) {
         const size_t index = candidate_index - 1;
         const converter::Candidate& candidate = segment->candidate(index);
-        if (candidate.description != "日付") {
+        if (!IsDateCandidateDescription(candidate.description)) {
           continue;
         }
         if (IsConfiguredDateValue(request.config(), year, month, day,
@@ -457,7 +465,7 @@ Rewriter::Rewriter(const engine::Modules& modules) {
       data_manager.GetEmojiRewriterData()));
   AddRewriter(std::make_unique<RemoveRedundantCandidateRewriter>());
   AddRewriter(make_unique_from_tuples<A11yDescriptionRewriter>(
-      data_manager.GetEmojiRewriterData()));
+      data_manager.GetA11yDescriptionRewriterData()));
 }
 
 }  // namespace mozc
