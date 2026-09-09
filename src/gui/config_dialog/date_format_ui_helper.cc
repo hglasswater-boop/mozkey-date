@@ -48,8 +48,10 @@ QString PreviewDateFormat(QString format) {
     format = QStringLiteral("{YEAR}/{MONTH}/{DATE}");
   }
 
-  // Use 2026-09-08 (Tuesday) for the fixed settings preview. Replace the
-  // custom tokens first, then the legacy zero-padded tokens.
+  // Use 2026-09-08 (Tuesday) for the fixed settings preview. Keep support for
+  // YEAR_NOZERO for compatibility with settings created by earlier builds,
+  // but do not expose it in the UI because modern four-digit years do not
+  // benefit from zero suppression.
   format.replace(QStringLiteral("{YEAR_NOZERO}"), QStringLiteral("2026"));
   format.replace(QStringLiteral("{MONTH_NOZERO}"), QStringLiteral("9"));
   format.replace(QStringLiteral("{DATE_NOZERO}"), QStringLiteral("8"));
@@ -118,17 +120,18 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
   if (auto* examples = config_dialog->findChild<QLabel*>(
           QStringLiteral("dateConversionFormatExamplesLabel"))) {
     examples->setText(QString::fromUtf8(
-        "部品をクリックすると下の編集欄のカーソル位置へ挿入されます。"
-        "挿入後は自由に編集できます。"));
+        "年・月・日・曜日の部品をクリックすると編集欄のカーソル位置へ挿入されます。"
+        "区切り文字や記号は編集欄へ直接入力してください。"));
   }
 
   format_edit->setPlaceholderText(QString::fromUtf8(
-      "例: {YEAR_NOZERO}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})"));
+      "例: {YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})"));
   format_edit->setToolTip(QString::fromUtf8(
-      "部品ボタンでひな形を作り、必要な部分だけ直接編集できます。"));
+      "日付部品を挿入したあと、区切り文字や括弧などを直接編集できます。"
+      "0サプレスは月・日にだけ用意しています。"));
 
   auto* parts_group =
-      new QGroupBox(QString::fromUtf8("フォーマット部品"), editor);
+      new QGroupBox(QString::fromUtf8("日付部品"), editor);
   parts_group->setObjectName(QStringLiteral("dateConversionFormatParts"));
   auto* parts_layout = new QGridLayout(parts_group);
   parts_layout->setContentsMargins(8, 8, 8, 8);
@@ -137,18 +140,15 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
 
   auto* hint = new QLabel(
       QString::fromUtf8(
-          "クリックすると編集欄へ挿入します。0埋め／0サプレスも部品ごとに選べます。"),
+          "クリックすると編集欄へ挿入します。月・日は0埋め／0サプレスを選べます。"),
       parts_group);
   hint->setWordWrap(true);
-  parts_layout->addWidget(hint, 0, 0, 1, 8);
+  parts_layout->addWidget(hint, 0, 0, 1, 5);
 
   parts_layout->addWidget(new QLabel(QString::fromUtf8("年"), parts_group),
                           1, 0);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QStringLiteral("2026"), QStringLiteral("{YEAR}"), 1, 1);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("2026（0サプレス）"),
-                QStringLiteral("{YEAR_NOZERO}"), 1, 2, 2);
+  AddPartButton(parts_layout, parts_group, format_edit, QStringLiteral("2026"),
+                QStringLiteral("{YEAR}"), 1, 1);
 
   parts_layout->addWidget(new QLabel(QString::fromUtf8("月"), parts_group),
                           2, 0);
@@ -173,36 +173,6 @@ void EnhanceDateFormatControls(QWidget* config_dialog) {
   AddPartButton(parts_layout, parts_group, format_edit,
                 QString::fromUtf8("火曜日"),
                 QStringLiteral("{WEEKDAY_LONG}"), 4, 2);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("(火)"),
-                QStringLiteral("({WEEKDAY})"), 4, 3);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("(火曜日)"),
-                QStringLiteral("({WEEKDAY_LONG})"), 4, 4, 2);
-
-  parts_layout->addWidget(new QLabel(QString::fromUtf8("区切り"), parts_group),
-                          5, 0);
-  AddPartButton(parts_layout, parts_group, format_edit, QStringLiteral("/"),
-                QStringLiteral("/"), 5, 1);
-  AddPartButton(parts_layout, parts_group, format_edit, QStringLiteral("-"),
-                QStringLiteral("-"), 5, 2);
-  AddPartButton(parts_layout, parts_group, format_edit, QStringLiteral("."),
-                QStringLiteral("."), 5, 3);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("年"), QString::fromUtf8("年"), 5, 4);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("月"), QString::fromUtf8("月"), 5, 5);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("日"), QString::fromUtf8("日"), 5, 6);
-
-  parts_layout->addWidget(new QLabel(QString::fromUtf8("記号"), parts_group),
-                          6, 0);
-  AddPartButton(parts_layout, parts_group, format_edit, QStringLiteral("("),
-                QStringLiteral("("), 6, 1);
-  AddPartButton(parts_layout, parts_group, format_edit, QStringLiteral(")"),
-                QStringLiteral(")"), 6, 2);
-  AddPartButton(parts_layout, parts_group, format_edit,
-                QString::fromUtf8("空白"), QStringLiteral(" "), 6, 3);
 
   editor_layout->insertWidget(0, parts_group);
 
