@@ -34,8 +34,8 @@ class QWidget;
 
 namespace mozc::gui {
 
-// Adds preset- and component-based date format controls to ConfigDialog.
-// The existing free-form editor remains available for advanced customization.
+// Adds insertable year/month/day/weekday parts to ConfigDialog. The existing
+// free-form editor remains the primary surface for separators and literals.
 void EnhanceDateFormatControls(QWidget* config_dialog);
 
 }  // namespace mozc::gui
