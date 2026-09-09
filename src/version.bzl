@@ -44,7 +44,19 @@ REVISION = 100
 # should match the GitHub release tag without the leading "v".
 MOZKEY_RELEASE_VERSION_MAJOR = 0
 MOZKEY_RELEASE_VERSION_MINOR = 2
-MOZKEY_RELEASE_VERSION_PATCH = 0
+MOZKEY_RELEASE_VERSION_PATCH = 1
+
+# Windows Installer must have a product version that increases independently
+# of the upstream Mozc engine version.  Mozkey v0.7.7 already uses
+# 3.33.6153.100, which is also the engine version used by mozkey-date.  Reusing
+# that value makes an MSI install look like the already-installed upstream
+# product instead of a mozkey-date upgrade.  Reserve major versions 100-199
+# for mozkey-date and map the public semver to MSI's three comparable fields.
+MOZKEY_MSI_PRODUCT_VERSION = "%d.%d.%d" % (
+    100 + MOZKEY_RELEASE_VERSION_MAJOR,
+    MOZKEY_RELEASE_VERSION_MINOR,
+    MOZKEY_RELEASE_VERSION_PATCH,
+)
 
 # LINT.IfChange
 DEFAULT_BUILD_LABEL_MACOS = "%d.%d.%d.%d" % (MAJOR, MINOR, BUILD, REVISION + 1)
