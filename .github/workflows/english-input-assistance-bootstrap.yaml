@@ -39,22 +39,21 @@ jobs:
           import re
 
           # Preserve all current main config additions and add only the two
-          # English input assistance flags. Fail loudly if their numeric IDs
-          # have become occupied by another field.
+          # English input assistance flags. 1028 is now used by the initialized
+          # date-format-list marker, so English assistance starts at 1029.
           config_path = Path('src/protocol/config.proto')
           config = config_path.read_text(encoding='utf-8')
           if 'use_english_word_dictionary' not in config:
-              for number in (1028, 1029):
-                  matches = re.findall(r'=\s*' + str(number) + r'\s*\[', config)
-                  if matches:
+              for number in (1029, 1030):
+                  if re.search(r'=\s*' + str(number) + r'(?:\s|\[|;)', config):
                       raise SystemExit(f'Config field number {number} is already occupied')
               anchor = '  optional bool use_spelling_correction = 88 [default = true];\n'
               if anchor not in config:
                   raise SystemExit('Could not find use_spelling_correction anchor')
               addition = (
                   '\n  // Latin-alphabet English input assistance for mozkey-date.\n'
-                  '  optional bool use_english_word_dictionary = 1028 [default = true];\n'
-                  '  optional bool use_english_spelling_correction = 1029 [default = true];\n'
+                  '  optional bool use_english_word_dictionary = 1029 [default = true];\n'
+                  '  optional bool use_english_spelling_correction = 1030 [default = true];\n'
               )
               config = config.replace(anchor, anchor + addition, 1)
               config_path.write_text(config, encoding='utf-8')
