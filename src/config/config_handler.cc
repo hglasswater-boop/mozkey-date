@@ -74,6 +74,23 @@ constexpr uint32_t kMozkeyDefaultDirectCommitKey =
     Config::DIRECT_COMMIT_OPEN_BRACKET |
     Config::DIRECT_COMMIT_CLOSE_BRACKET;
 
+void AddDefaultDateConversionFormats(Config* config) {
+  if (config == nullptr ||
+      config->date_conversion_custom_formats_size() > 0 ||
+      !config->date_conversion_custom_format().empty()) {
+    return;
+  }
+
+  // Keep the built-in-looking date candidates in configuration rather than
+  // hard-coding them in the rewriter.  The ordered list is the single source
+  // of truth, so users can remove or reorder these defaults just like any
+  // custom format.
+  config->add_date_conversion_custom_formats("{YEAR}/{MONTH}/{DATE}");
+  config->add_date_conversion_custom_formats("{YEAR}-{MONTH}-{DATE}");
+  config->add_date_conversion_custom_formats(
+      "{YEAR}年{MONTH_NOZERO}月{DATE_NOZERO}日");
+}
+
 // Applies Mozkey-specific product defaults only to fields that have not been
 // explicitly stored.  Keep this shared by normalization and the user-facing
 // product-default accessor so that a fresh profile, an older profile missing
@@ -104,6 +121,7 @@ void ApplyMozkeyProductDefaults(Config* config) {
   if (!config->has_use_realtime_conversion()) {
     config->set_use_realtime_conversion(false);
   }
+  AddDefaultDateConversionFormats(config);
 }
 
 void AddCharacterFormRule(const absl::string_view group,
@@ -152,6 +170,7 @@ Config CreateDefaultConfig() {
     config.set_use_emoji_conversion(true);
   }
 
+  AddDefaultDateConversionFormats(&config);
   return config;
 }
 
