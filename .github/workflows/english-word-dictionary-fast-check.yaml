@@ -1,0 +1,55 @@
+name: English dictionary fast diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/english-word-dictionary
+
+permissions:
+  contents: read
+
+jobs:
+  windows_test:
+    name: English dictionary Bazel diagnostic
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Restore update_deps cache
+        uses: actions/cache@v5
+        with:
+          path: src/third_party_cache
+          key: update-deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
+
+      - name: Install dependencies
+        shell: cmd
+        working-directory: .\src
+        run: python build_tools/update_deps.py
+
+      - name: Run English dictionary test
+        shell: pwsh
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: |
+          $ErrorActionPreference = "Continue"
+          & bazelisk test --config oss_windows --config release_build --test_output=errors --verbose_failures //rewriter:english_word_dictionary_rewriter_test 2>&1 | Tee-Object -FilePath english-bazel.log
+          $exitCode = $LASTEXITCODE
+          Write-Host "===== FILTERED BAZEL DIAGNOSTICS ====="
+          Get-Content english-bazel.log | Select-String -Pattern 'ERROR:|FAILED|error C[0-9]+|fatal error|undeclared inclusion|no such target|undefined' | Select-Object -Last 120
+          Write-Host "bazel exit code: $exitCode"
+          exit $exitCode
+
+      - name: Upload diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: english-bazel-diagnostic
+          path: src/english-bazel.log
+          if-no-files-found: warn
