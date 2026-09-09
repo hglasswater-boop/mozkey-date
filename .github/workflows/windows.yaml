@@ -168,15 +168,20 @@ jobs:
             Remove-Item .\src\third_party\qt_src -Recurse -Force
           }
 
-      # Use one bounded Bazel cache snapshot instead of creating a full cache
-      # archive for every commit SHA. Bazel's disk cache is content-addressed;
-      # stale actions safely miss while unchanged actions remain reusable.
+      # Keep one bounded Bazel snapshot per day. GitHub Actions caches are
+      # immutable, so a date component lets the snapshot advance without
+      # creating a full archive for every commit. Seed a new day from the most
+      # recent v2 snapshot, or from the previous per-commit v1 cache while the
+      # new scheme is being rolled out.
       - name: Restore Bazel disk cache
         id: bazel-cache
         uses: actions/cache/restore@v5
         with:
           path: src/.bazel-disk-cache
-          key: bazel-${{ runner.os }}-${{ runner.arch }}-v2-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}
+          key: bazel-${{ runner.os }}-${{ runner.arch }}-v2-${{ env.DICTIONARY_CACHE_DATE }}-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ runner.arch }}-v2-
+            bazel-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}-
 
       - name: Prepare CRT redist directory expected by WiX
         shell: pwsh
