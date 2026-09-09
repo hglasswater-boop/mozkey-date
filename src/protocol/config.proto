@@ -302,7 +302,7 @@ message Config {
   optional bool use_kana_modifier_insensitive_conversion = 65 [default = false];
 
   // Use typing correction feature.
-  // e.g. sunkai -> 深海
+  // e.g. sunkai -> 学校
   optional bool use_typing_correction = 66 [default = false];
 
   // The duration in millisecond to determine the timeout.
@@ -407,15 +407,19 @@ message Config {
   //
   optional bool use_date_conversion = 80 [default = true];
 
-  // Preferred custom format for date conversion candidates.
-  // Accepts {YEAR}, {MONTH}, and {DATE}. Built-ins remain available.
-  // Kept for compatibility with v0.1.0.
+  // Legacy single preferred custom format kept for v0.1 compatibility.
   optional string date_conversion_custom_format = 1026 [default = ""];
 
-  // Ordered preferred date formats. Earlier entries are inserted before later
-  // entries in the conversion candidate list. If empty, the legacy single
-  // date_conversion_custom_format field above is used.
+  // Ordered date formats. The list is the source of truth once initialized;
+  // earlier entries are inserted before later entries in the candidate list.
   repeated string date_conversion_custom_formats = 1027;
+
+  // Set after the ordered date-format list has been initialized or migrated.
+  // When true, an empty list intentionally means no date-format candidates and
+  // must not be replaced by product defaults on the next startup.
+  optional bool date_conversion_custom_formats_initialized = 1028
+      [default = false];
+
   optional bool use_single_kanji_conversion = 81 [default = true];
   optional bool use_symbol_conversion = 82 [default = true];
   optional bool use_number_conversion = 83 [default = true];
@@ -508,7 +512,7 @@ message Config {
   // Empty string means the platform/default font.
   optional string candidate_ruby_font_name = 134 [default = ""];
 
-  // Show ruby window during live conversion on Windows.
+  // Show ruby window during live conversion on Windows TSF.
   optional bool show_live_conversion_ruby_window = 135 [default = true];
 
 
