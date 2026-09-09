@@ -42,23 +42,45 @@ jobs:
         working-directory: .\src
         run: python build_tools/build_qt.py --release --confirm_license
 
-      - name: Test English input assistance
+      - name: Test English word dictionary
         shell: cmd
         working-directory: .\src
         env:
           ANDROID_NDK_HOME: ""
         run: >-
           bazelisk test --config oss_windows --config release_build
-          --test_output=errors
+          --test_output=errors --verbose_failures
           //rewriter:english_word_dictionary_rewriter_test
+
+      - name: Test English variants
+        if: always()
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: >-
+          bazelisk test --config oss_windows --config release_build
+          --test_output=errors --verbose_failures
           //rewriter:english_variants_rewriter_test
+
+      - name: Test rewriter integration
+        if: always()
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: >-
+          bazelisk test --config oss_windows --config release_build
+          --test_output=errors --verbose_failures
           //rewriter:rewriter_test
 
       - name: Build Properties dialog
+        if: always()
         shell: cmd
         working-directory: .\src
         env:
           ANDROID_NDK_HOME: ""
         run: >-
           bazelisk build --config oss_windows --config release_build
+          --verbose_failures
           //gui/config_dialog:config_dialog
