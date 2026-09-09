@@ -1594,6 +1594,7 @@ mozc_cc_library(
         ":emoji_rewriter",
         ":emoticon_rewriter",
         ":english_variants_rewriter",
+        ":english_word_dictionary_rewriter",
         ":environmental_filter_rewriter",
         ":focus_candidate_rewriter",
         ":fortune_rewriter",
