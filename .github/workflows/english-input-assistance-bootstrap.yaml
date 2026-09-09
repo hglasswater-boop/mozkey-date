@@ -1,0 +1,104 @@
+name: Bootstrap English input assistance on latest main
+
+on:
+  push:
+    branches:
+      - feature/english-input-assistance-clean
+
+permissions:
+  contents: write
+
+jobs:
+  port_feature:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout clean branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Port validated English input files
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git fetch origin feature/english-word-dictionary
+          git checkout origin/feature/english-word-dictionary -- \
+            src/gui/config_dialog/config_dialog.cc \
+            src/gui/config_dialog/config_dialog.h \
+            src/rewriter/BUILD.bazel \
+            src/rewriter/english_word_dictionary_ESDB_LICENSE.txt \
+            src/rewriter/english_word_dictionary_data.inc \
+            src/rewriter/english_word_dictionary_rewriter.cc \
+            src/rewriter/english_word_dictionary_rewriter.h \
+            src/rewriter/english_word_dictionary_rewriter_test.cc \
+            src/rewriter/gen_english_word_dictionary.py
+
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Preserve all current main config additions and add only the two
+          # English input assistance flags. Fail loudly if their numeric IDs
+          # have become occupied by another field.
+          config_path = Path('src/protocol/config.proto')
+          config = config_path.read_text(encoding='utf-8')
+          if 'use_english_word_dictionary' not in config:
+              for number in (1028, 1029):
+                  matches = re.findall(r'=\s*' + str(number) + r'\s*\[', config)
+                  if matches:
+                      raise SystemExit(f'Config field number {number} is already occupied')
+              anchor = '  optional bool use_spelling_correction = 88 [default = true];\n'
+              if anchor not in config:
+                  raise SystemExit('Could not find use_spelling_correction anchor')
+              addition = (
+                  '\n  // Latin-alphabet English input assistance for mozkey-date.\n'
+                  '  optional bool use_english_word_dictionary = 1028 [default = true];\n'
+                  '  optional bool use_english_spelling_correction = 1029 [default = true];\n'
+              )
+              config = config.replace(anchor, anchor + addition, 1)
+              config_path.write_text(config, encoding='utf-8')
+
+          # Preserve latest main's date-format post-processing and add the new
+          # English rewriter beside the existing EnglishVariants rewriter.
+          rewriter_path = Path('src/rewriter/rewriter.cc')
+          rewriter = rewriter_path.read_text(encoding='utf-8')
+          include = '#include "rewriter/english_word_dictionary_rewriter.h"\n'
+          if include not in rewriter:
+              anchor = '#include "rewriter/english_variants_rewriter.h"\n'
+              if anchor not in rewriter:
+                  raise SystemExit('Could not find EnglishVariants include anchor')
+              rewriter = rewriter.replace(anchor, anchor + include, 1)
+          registration = '  AddRewriter<EnglishWordDictionaryRewriter>();\n'
+          if registration not in rewriter:
+              anchor = '  AddRewriter<EnglishVariantsRewriter>();\n'
+              if anchor not in rewriter:
+                  raise SystemExit('Could not find EnglishVariants registration anchor')
+              rewriter = rewriter.replace(anchor, anchor + registration, 1)
+          rewriter_path.write_text(rewriter, encoding='utf-8')
+          PY
+
+          # Guard against accidentally restoring the old kana-to-English prototype.
+          git diff -- src/rewriter/english_variants_rewriter.cc src/rewriter/english_variants_rewriter.h --exit-code
+          git diff --check
+
+      - name: Commit ported feature
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            src/gui/config_dialog/config_dialog.cc \
+            src/gui/config_dialog/config_dialog.h \
+            src/protocol/config.proto \
+            src/rewriter/BUILD.bazel \
+            src/rewriter/english_word_dictionary_ESDB_LICENSE.txt \
+            src/rewriter/english_word_dictionary_data.inc \
+            src/rewriter/english_word_dictionary_rewriter.cc \
+            src/rewriter/english_word_dictionary_rewriter.h \
+            src/rewriter/english_word_dictionary_rewriter_test.cc \
+            src/rewriter/gen_english_word_dictionary.py \
+            src/rewriter/rewriter.cc
+          git commit -m "Add English input assistance"
+          git push origin HEAD:feature/english-input-assistance-clean
