@@ -1,0 +1,77 @@
+name: Finalize English dictionary integration
+
+on:
+  push:
+    branches:
+      - feature/english-word-dictionary-main
+    paths:
+      - .github/workflows/finalize-english-integration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply final integration fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path("src/rewriter/BUILD.bazel")
+          text = build.read_text(encoding="utf-8")
+          old = '''mozc_cc_test(\n    name = "english_word_dictionary_rewriter_test",\n    size = "small",'''
+          new = '''mozc_cc_test(\n    name = "english_word_dictionary_rewriter_test",\n    size = "large",'''
+          if old not in text:
+              raise SystemExit("English test size anchor not found")
+          build.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          rewriter = Path("src/rewriter/english_word_dictionary_rewriter.cc")
+          text = rewriter.read_text(encoding="utf-8")
+          constant_anchor = "constexpr size_t kMaxSpellingCandidates = 5;\n"
+          if "kMaxSpellingTier" not in text:
+              if constant_anchor not in text:
+                  raise SystemExit("Spelling constant anchor not found")
+              text = text.replace(
+                  constant_anchor,
+                  constant_anchor + "constexpr uint8_t kMaxSpellingTier = 60;\n",
+                  1,
+              )
+          loop_anchor = '''  for (const EnglishWordData& entry : kEnglishWordDictionary) {\n    const int distance =\n        BoundedDamerauLevenshtein(input, entry.word, max_distance);'''
+          loop_replacement = '''  for (const EnglishWordData& entry : kEnglishWordDictionary) {\n    if (entry.tier > kMaxSpellingTier ||\n        std::abs(static_cast<int>(entry.word.size()) -\n                 static_cast<int>(input.size())) > max_distance) {\n      continue;\n    }\n    const int distance =\n        BoundedDamerauLevenshtein(input, entry.word, max_distance);'''
+          if loop_replacement not in text:
+              if loop_anchor not in text:
+                  raise SystemExit("Spelling scan anchor not found")
+              text = text.replace(loop_anchor, loop_replacement, 1)
+          rewriter.write_text(text, encoding="utf-8")
+
+          windows = Path(".github/workflows/windows.yaml")
+          text = windows.read_text(encoding="utf-8")
+          step = '''      - name: Test English word dictionary\n        shell: cmd\n        working-directory: .\\src\n        env:\n          ANDROID_NDK_HOME: ""\n        run: |\n          bazelisk test --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s //rewriter:english_word_dictionary_rewriter_test\n\n'''
+          anchor = "      - name: Build x64 package\n"
+          if "      - name: Test English word dictionary\n" not in text:
+              if anchor not in text:
+                  raise SystemExit("Windows CI insertion anchor not found")
+              text = text.replace(anchor, step + anchor, 1)
+          windows.write_text(text, encoding="utf-8")
+
+          for path in [
+              Path(".github/workflows/english-word-dictionary-check.yaml"),
+              Path(".github/workflows/finalize-english-integration.yml"),
+          ]:
+              if path.exists():
+                  path.unlink()
+
+      - name: Commit final integration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize English dictionary integration"
+          git push origin HEAD:feature/english-word-dictionary-main
