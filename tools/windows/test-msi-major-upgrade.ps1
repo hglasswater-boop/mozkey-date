@@ -17,8 +17,12 @@ function Get-FullPath([string]$Path) {
 }
 
 function Get-MsiProperty([string]$Path, [string]$PropertyName) {
-  $installer = New-Object -ComObject WindowsInstaller.Installer
+  $installer = $null
+  $database = $null
+  $view = $null
+  $record = $null
   try {
+    $installer = New-Object -ComObject WindowsInstaller.Installer
     $database = $installer.GetType().InvokeMember(
       "OpenDatabase",
       [System.Reflection.BindingFlags]::InvokeMethod,
@@ -51,11 +55,30 @@ function Get-MsiProperty([string]$Path, [string]$PropertyName) {
     if ($null -eq $record) {
       throw "MSI property '$PropertyName' was not found in $Path"
     }
-    return [string]$record.StringData(1)
+
+    $value = $record.GetType().InvokeMember(
+      "StringData",
+      [System.Reflection.BindingFlags]::GetProperty,
+      $null,
+      $record,
+      @(1)
+    )
+
+    $view.GetType().InvokeMember(
+      "Close",
+      [System.Reflection.BindingFlags]::InvokeMethod,
+      $null,
+      $view,
+      $null
+    ) | Out-Null
+
+    return [string]$value
   }
   finally {
-    if ($null -ne $installer) {
-      [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer) | Out-Null
+    foreach ($comObject in @($record, $view, $database, $installer)) {
+      if ($null -ne $comObject -and [System.Runtime.InteropServices.Marshal]::IsComObject($comObject)) {
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) | Out-Null
+      }
     }
   }
 }
