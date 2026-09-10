@@ -763,11 +763,13 @@ TEST_F(DateRewriterTest, AtokStyleMultipleCustomFormatsPreserveOrder) {
 
   InitSegment("9/8", "9/8", &segments);
   EXPECT_TRUE(rewriter.Rewrite(request, &segments));
-  ASSERT_GE(segments.segment(0).candidates_size(), 4);
+  ASSERT_GE(segments.segment(0).candidates_size(), 6);
   EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
   EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
   EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
-  EXPECT_EQ(segments.segment(0).candidate(3).value, "2026/09/08");
+  EXPECT_EQ(segments.segment(0).candidate(3).value, "9月8日");
+  EXPECT_EQ(segments.segment(0).candidate(4).value, "09/08");
+  EXPECT_EQ(segments.segment(0).candidate(5).value, "2026/09/08");
 
   InitSegment("きょう", "今日", &segments);
   EXPECT_TRUE(rewriter.Rewrite(request, &segments));
