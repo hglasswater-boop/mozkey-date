@@ -12,6 +12,7 @@ $InstallerAssetName = "MozkeyDate-Windows.msi"
 $ChecksumAssetName = "$InstallerAssetName.sha256"
 $StateDirectory = Join-Path $env:LOCALAPPDATA "MozkeyDate"
 $InstalledReleaseFile = Join-Path $StateDirectory "last-installed-release.txt"
+$LogDirectory = Join-Path $StateDirectory "Logs"
 $ApiHeaders = @{
   Accept = "application/vnd.github+json"
   "User-Agent" = "mozkey-date-windows-updater"
@@ -36,15 +37,27 @@ function Get-ReleaseAsset([object]$Release, [string]$Name) {
   return $asset
 }
 
+function Get-InstallerErrorMessage([int]$ExitCode, [string]$LogPath) {
+  switch ($ExitCode) {
+    1602 { return "インストールがキャンセルされました。" }
+    1603 { return "Windows Installer で致命的なエラーが発生しました。" }
+    1618 { return "別の Windows Installer 処理が実行中です。完了後にもう一度更新してください。" }
+    1619 { return "ダウンロードした MSI を開けませんでした。" }
+    1638 { return "別バージョンの Mozkey が残っているため更新できませんでした。MSI の UpgradeCode / ProductVersion を確認してください。" }
+    default { return "インストーラーが終了コード $ExitCode で失敗しました。" }
+  }
+}
+
 $release = Get-LatestRelease
 $tag = [string]$release.tag_name
 if ([string]::IsNullOrWhiteSpace($tag)) {
   throw "Release のタグ名を取得できませんでした。"
 }
 
-if (-not $Force -and (Test-Path $InstalledReleaseFile)) {
+$installedTag = $null
+if (Test-Path $InstalledReleaseFile) {
   $installedTag = (Get-Content -LiteralPath $InstalledReleaseFile -Raw).Trim()
-  if ($installedTag -eq $tag) {
+  if (-not $Force -and $installedTag -eq $tag) {
     Write-Host "Mozkey Date $tag はこの更新ツールですでにインストール済みです。"
     Write-Host "再インストールする場合は -Force を指定してください。"
     exit 0
@@ -69,20 +82,42 @@ try {
     throw "SHA-256 が一致しません。更新を中止しました。"
   }
 
+  New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+  $safeTag = $tag -replace '[^0-9A-Za-z._-]', '_'
+  $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $logPath = Join-Path $LogDirectory "update-$safeTag-$timestamp.log"
+
   Write-Host "SHA-256 を確認しました。インストーラーを起動します。"
+  Write-Host "インストールログ: $logPath"
   $uiArgument = if ($Quiet) { "/qn" } else { "/passive" }
   $arguments = @(
     "/i",
     "`"$installerPath`"",
     $uiArgument,
     "/norestart",
-    "REINSTALL=ALL",
-    "REINSTALLMODE=vomus"
+    "/L*v",
+    "`"$logPath`""
   )
 
-  $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+  # A major upgrade has a different ProductCode and must be installed as a new
+  # product. REINSTALL=ALL prevents installation when that ProductCode is not
+  # already installed, so only use reinstall properties for an explicit
+  # same-release -Force repair.
+  if ($Force -and $installedTag -eq $tag) {
+    $arguments += "REINSTALL=ALL"
+    $arguments += "REINSTALLMODE=vomus"
+  }
+
+  try {
+    $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+  }
+  catch {
+    throw "インストーラーを起動できませんでした。管理者権限の確認がキャンセルされたか、Windows Installer を起動できません。`n$($_.Exception.Message)"
+  }
+
   if ($process.ExitCode -notin @(0, 1641, 3010)) {
-    throw "インストーラーが終了コード $($process.ExitCode) で失敗しました。"
+    $message = Get-InstallerErrorMessage -ExitCode $process.ExitCode -LogPath $logPath
+    throw "$message`n終了コード: $($process.ExitCode)`nログ: $logPath"
   }
 
   New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null
