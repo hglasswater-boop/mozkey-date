@@ -102,6 +102,36 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      - name: Verify MSI ProductVersion and UpgradeCode
+        if: steps.release_tag.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update -qq
+          sudo apt-get install -y msitools >/dev/null
+
+          major="$(sed -n 's/^MOZKEY_RELEASE_VERSION_MAJOR = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
+          minor="$(sed -n 's/^MOZKEY_RELEASE_VERSION_MINOR = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
+          patch="$(sed -n 's/^MOZKEY_RELEASE_VERSION_PATCH = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
+          expected_product_version="$((100 + major)).${minor}.${patch}"
+          expected_upgrade_code="DD94B570-B5E2-4100-9D42-61930C611D8A"
+
+          property_table="$(msiinfo export release/Mozc64.msi Property | tr -d '\r')"
+          product_version="$(printf '%s\n' "$property_table" | awk -F '\t' '$1 == "ProductVersion" {print $2; exit}')"
+          [[ "$product_version" == "$expected_product_version" ]] || {
+            echo "MSI ProductVersion mismatch: expected=$expected_product_version actual=$product_version" >&2
+            exit 1
+          }
+
+          upgrade_table="$(msiinfo export release/Mozc64.msi Upgrade | tr -d '\r')"
+          printf '%s\n' "$upgrade_table" | grep -qi "$expected_upgrade_code" || {
+            echo "MSI UpgradeCode mismatch: expected $expected_upgrade_code" >&2
+            exit 1
+          }
+
+          echo "Verified MSI ProductVersion=$product_version and UpgradeCode=$expected_upgrade_code"
+
       - name: Prepare release assets
         if: steps.release_tag.outputs.should_release == 'true'
         shell: bash
