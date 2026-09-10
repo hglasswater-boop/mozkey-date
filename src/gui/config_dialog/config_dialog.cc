@@ -3110,6 +3110,12 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
   SET_CHECKBOX(t13nConversionCheckBox, use_t13n_conversion);
   SET_CHECKBOX(zipcodeConversionCheckBox, use_zip_code_conversion);
   SET_CHECKBOX(spellingCorrectionCheckBox, use_spelling_correction);
+  englishWordDictionaryCheckBox->setChecked(
+      config.use_english_word_dictionary());
+  englishSpellingCorrectionCheckBox->setChecked(
+      config.use_english_spelling_correction());
+  englishSpellingCorrectionCheckBox->setEnabled(
+      config.use_english_word_dictionary());
 
   // InfoListConfig
   localUsageDictionaryCheckBox->setChecked(
@@ -3381,6 +3387,10 @@ void ConfigDialog::ConvertToProto(config::Config *config) const {
   GET_CHECKBOX(t13nConversionCheckBox, use_t13n_conversion);
   GET_CHECKBOX(zipcodeConversionCheckBox, use_zip_code_conversion);
   GET_CHECKBOX(spellingCorrectionCheckBox, use_spelling_correction);
+  config->set_use_english_word_dictionary(
+      englishWordDictionaryCheckBox->isChecked());
+  config->set_use_english_spelling_correction(
+      englishSpellingCorrectionCheckBox->isChecked());
 
   // InformationListConfig
   config->mutable_information_list_config()->set_use_local_usage_dictionary(

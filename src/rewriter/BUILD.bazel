@@ -695,6 +695,38 @@ mozc_cc_test(
 )
 
 mozc_cc_library(
+    name = "english_word_dictionary_rewriter",
+    srcs = ["english_word_dictionary_rewriter.cc"],
+    hdrs = ["english_word_dictionary_rewriter.h"],
+    textual_hdrs = ["english_word_dictionary_data.inc"],
+    deps = [
+        ":rewriter_interface",
+        "//converter:attribute",
+        "//converter:segments",
+        "//protocol:config_cc_proto",
+        "//request:conversion_request",
+        "@com_google_absl//absl/strings",
+    ],
+    alwayslink = 1,
+)
+
+mozc_cc_test(
+    name = "english_word_dictionary_rewriter_test",
+    size = "large",
+    srcs = ["english_word_dictionary_rewriter_test.cc"],
+    deps = [
+        ":english_word_dictionary_rewriter",
+        "//config:config_handler",
+        "//converter:attribute",
+        "//converter:segments",
+        "//protocol:config_cc_proto",
+        "//request:conversion_request",
+        "//testing:gunit_main",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+mozc_cc_library(
     name = "english_variants_rewriter",
     srcs = ["english_variants_rewriter.cc"],
     hdrs = ["english_variants_rewriter.h"],
@@ -1562,6 +1594,7 @@ mozc_cc_library(
         ":emoji_rewriter",
         ":emoticon_rewriter",
         ":english_variants_rewriter",
+        ":english_word_dictionary_rewriter",
         ":environmental_filter_rewriter",
         ":focus_candidate_rewriter",
         ":fortune_rewriter",
