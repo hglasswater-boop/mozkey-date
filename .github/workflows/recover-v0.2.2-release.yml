@@ -1,0 +1,239 @@
+name: Recover v0.2.2 Windows release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/recover-v0.2.2-release.yml
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: recover-v0.2.2-windows-release
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: v0.2.2
+  RELEASE_SHA: 58a844436e039e2423d37292871d869f582494b9
+  CANDIDATE_RUN_ID: "34503496539"
+  CANDIDATE_ARTIFACT_ID: "10164207197"
+  EXPECTED_PRODUCT_VERSION: "100.2.2"
+  EXPECTED_UPGRADE_CODE: DD94B570-B5E2-4100-9D42-61930C611D8A
+
+jobs:
+  verify_upgrade:
+    if: github.repository == 'hglasswater-boop/mozkey-date'
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout v0.2.2 release target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable release target and candidate artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $tagSha = (git rev-list -n 1 $env:RELEASE_TAG).Trim()
+          if ($tagSha -ne $env:RELEASE_SHA) {
+            throw "Release tag moved: expected=$env:RELEASE_SHA actual=$tagSha"
+          }
+
+          $major = (Select-String -Path src/version.bzl -Pattern '^MOZKEY_RELEASE_VERSION_MAJOR = ([0-9]+)$').Matches.Groups[1].Value
+          $minor = (Select-String -Path src/version.bzl -Pattern '^MOZKEY_RELEASE_VERSION_MINOR = ([0-9]+)$').Matches.Groups[1].Value
+          $patch = (Select-String -Path src/version.bzl -Pattern '^MOZKEY_RELEASE_VERSION_PATCH = ([0-9]+)$').Matches.Groups[1].Value
+          $sourceTag = "v$major.$minor.$patch"
+          if ($sourceTag -ne $env:RELEASE_TAG) {
+            throw "Release tag/version mismatch: tag=$env:RELEASE_TAG source=$sourceTag"
+          }
+
+          if (-not (Select-String -Path src/gui/about_dialog/about_dialog.cc -SimpleMatch 'Version::GetMozkeyReleaseVersion()' -Quiet)) {
+            throw "About dialog is not using the mozkey-date release version."
+          }
+          if (-not (Select-String -Path src/gui/config_dialog/config_dialog.cc -SimpleMatch 'dateConversionFormatListWidget' -Quiet)) {
+            throw "Date conversion settings UI is missing from the release target."
+          }
+          if (-not (Select-String -Path tools/windows/update-mozkey-date.ps1 -SimpleMatch 'if ($Force -and $installedTag -eq $tag)' -Quiet)) {
+            throw "Updater major-upgrade repair guard is missing from the release target."
+          }
+
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "User-Agent" = "mozkey-date-release-recovery"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $artifact = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:CANDIDATE_ARTIFACT_ID" -Headers $headers
+          if ($artifact.name -ne 'Mozc64_universal.msi') {
+            throw "Unexpected candidate artifact name: $($artifact.name)"
+          }
+          if ([string]$artifact.workflow_run.id -ne $env:CANDIDATE_RUN_ID) {
+            throw "Candidate artifact run mismatch: expected=$env:CANDIDATE_RUN_ID actual=$($artifact.workflow_run.id)"
+          }
+          if ($artifact.workflow_run.head_sha -ne $env:RELEASE_SHA) {
+            throw "Candidate artifact SHA mismatch: expected=$env:RELEASE_SHA actual=$($artifact.workflow_run.head_sha)"
+          }
+
+          Write-Host "Verified release target $env:RELEASE_TAG -> $env:RELEASE_SHA and candidate artifact $env:CANDIDATE_ARTIFACT_ID"
+
+      - name: Download candidate universal Windows MSI
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ env.CANDIDATE_ARTIFACT_ID }}
+          path: candidate
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CANDIDATE_RUN_ID }}
+
+      - name: Download v0.2.1 baseline MSI
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "User-Agent" = "mozkey-date-release-recovery"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/v0.2.1" -Headers $headers
+          if ($release.draft -or $release.prerelease) {
+            throw "v0.2.1 is not a stable release baseline."
+          }
+          $asset = $release.assets | Where-Object { $_.name -eq 'MozkeyDate-Windows.msi' } | Select-Object -First 1
+          if (-not $asset) {
+            throw "v0.2.1 has no MozkeyDate-Windows.msi asset."
+          }
+
+          New-Item -ItemType Directory -Path previous-release -Force | Out-Null
+          $downloadHeaders = $headers.Clone()
+          $downloadHeaders['Accept'] = 'application/octet-stream'
+          Invoke-WebRequest -UseBasicParsing -Uri $asset.url -Headers $downloadHeaders -OutFile 'previous-release\MozkeyDate-Windows.msi'
+          Write-Host "Downloaded v0.2.1 upgrade baseline."
+
+      - name: Verify v0.2.1 is replaced by v0.2.2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $candidate = Get-ChildItem -Path candidate -Filter Mozc64.msi -Recurse | Select-Object -First 1
+          if (-not $candidate) {
+            throw "Candidate Mozc64.msi was not found after artifact download."
+          }
+          .\tools\windows\test-msi-major-upgrade.ps1 `
+            -PreviousMsi '.\previous-release\MozkeyDate-Windows.msi' `
+            -CandidateMsi $candidate.FullName `
+            -LogDirectory '.\upgrade-logs'
+
+      - name: Upload MSI upgrade logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v0.2.2-recovery-upgrade-logs
+          path: upgrade-logs
+          if-no-files-found: ignore
+
+  publish:
+    needs: verify_upgrade
+    if: needs.verify_upgrade.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout v0.2.2 release target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release target remains immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-list -n 1 "$RELEASE_TAG")"
+          [[ "$actual_sha" == "$RELEASE_SHA" ]] || {
+            echo "Release tag moved: expected=$RELEASE_SHA actual=$actual_sha" >&2
+            exit 1
+          }
+
+      - name: Download verified candidate MSI
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ env.CANDIDATE_ARTIFACT_ID }}
+          path: release
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CANDIDATE_RUN_ID }}
+
+      - name: Verify MSI ProductVersion and UpgradeCode
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y msitools >/dev/null
+
+          candidate="$(find release -type f -name 'Mozc64.msi' -print -quit)"
+          [[ -n "$candidate" ]] || {
+            echo "Candidate Mozc64.msi was not found." >&2
+            exit 1
+          }
+
+          property_table="$(msiinfo export "$candidate" Property | tr -d '\r')"
+          product_version="$(printf '%s\n' "$property_table" | awk -F '\t' '$1 == "ProductVersion" {print $2; exit}')"
+          [[ "$product_version" == "$EXPECTED_PRODUCT_VERSION" ]] || {
+            echo "MSI ProductVersion mismatch: expected=$EXPECTED_PRODUCT_VERSION actual=$product_version" >&2
+            exit 1
+          }
+
+          upgrade_table="$(msiinfo export "$candidate" Upgrade | tr -d '\r')"
+          printf '%s\n' "$upgrade_table" | grep -qi "$EXPECTED_UPGRADE_CODE" || {
+            echo "MSI UpgradeCode mismatch: expected=$EXPECTED_UPGRADE_CODE" >&2
+            exit 1
+          }
+
+          echo "Verified MSI ProductVersion=$product_version and UpgradeCode=$EXPECTED_UPGRADE_CODE"
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$(find release -type f -name 'Mozc64.msi' -print -quit)"
+          installer="release/MozkeyDate-Windows.msi"
+          mv "$candidate" "$installer"
+          hash="$(sha256sum "$installer" | awk '{print $1}')"
+          printf '%s  %s\n' "$hash" "$(basename "$installer")" > "${installer}.sha256"
+          echo "Release MSI SHA-256: $hash"
+
+      - name: Publish v0.2.2 GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=(
+            'release/MozkeyDate-Windows.msi'
+            'release/MozkeyDate-Windows.msi.sha256'
+            'tools/windows/update-mozkey-date.ps1'
+            'tools/windows/update-mozkey-date.cmd'
+          )
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Mozkey Date $RELEASE_TAG" \
+              --generate-notes \
+              --verify-tag
+          fi
