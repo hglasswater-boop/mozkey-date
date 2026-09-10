@@ -1,0 +1,73 @@
+name: Apply README branding once
+
+on:
+  push:
+    branches:
+      - chore/readme-mozkey-date
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/readme-mozkey-date
+          fetch-depth: 0
+
+      - name: Update README branding
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('README.md')
+          text = path.read_text(encoding='utf-8')
+
+          # Move stale links from the original Mozkey repository to mozkey-date.
+          text = text.replace(
+              'https://github.com/koyasi777/mozkey',
+              'https://github.com/hglasswater-boop/mozkey-date',
+          )
+          text = text.replace(
+              'https://img.shields.io/github/v/release/koyasi777/mozkey',
+              'https://img.shields.io/github/v/release/hglasswater-boop/mozkey-date',
+          )
+
+          # The current Windows release asset is named MozkeyDate-Windows.msi.
+          text = text.replace('`Mozkey_v*_x64.msi`', '`MozkeyDate-Windows.msi`')
+
+          # Rename remaining standalone product/repository references without
+          # touching Mozc or already-correct mozkey-date strings.
+          text = re.sub(r'\bMozkey\b(?!-date)', 'Mozkey-date', text)
+          text = re.sub(r'\bmozkey\b(?!-date)', 'mozkey-date', text)
+
+          stale = []
+          if 'koyasi777/mozkey' in text:
+              stale.append('old repository link')
+          if re.search(r'\bMozkey\b(?!-date)', text):
+              stale.append('standalone Mozkey')
+          if re.search(r'\bmozkey\b(?!-date)', text):
+              stale.append('standalone mozkey')
+          if stale:
+              raise SystemExit('stale README branding remains: ' + ', '.join(stale))
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          git diff --check -- README.md
+          git diff -- README.md
+
+      - name: Commit README only
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/readme-brand-once.yml
+          git add README.md
+          git commit -m "docs: rename Mozkey references to Mozkey-date"
+          git push origin HEAD:chore/readme-mozkey-date
