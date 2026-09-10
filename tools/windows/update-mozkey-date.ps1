@@ -37,7 +37,7 @@ function Get-ReleaseAsset([object]$Release, [string]$Name) {
   return $asset
 }
 
-function Get-InstallerErrorMessage([int]$ExitCode, [string]$LogPath) {
+function Get-InstallerErrorMessage([int]$ExitCode) {
   switch ($ExitCode) {
     1602 { return "インストールがキャンセルされました。" }
     1603 { return "Windows Installer で致命的なエラーが発生しました。" }
@@ -73,8 +73,8 @@ $checksumPath = Join-Path $tempDirectory $ChecksumAssetName
 New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
 try {
   Write-Host "Mozkey Date $tag をダウンロードしています..."
-  Invoke-WebRequest -Uri $installerAsset.browser_download_url -Headers $ApiHeaders -OutFile $installerPath
-  Invoke-WebRequest -Uri $checksumAsset.browser_download_url -Headers $ApiHeaders -OutFile $checksumPath
+  Invoke-WebRequest -UseBasicParsing -Uri $installerAsset.browser_download_url -Headers $ApiHeaders -OutFile $installerPath
+  Invoke-WebRequest -UseBasicParsing -Uri $checksumAsset.browser_download_url -Headers $ApiHeaders -OutFile $checksumPath
 
   $expectedHash = (((Get-Content -LiteralPath $checksumPath -Raw) -split '\s+')[0]).ToLowerInvariant()
   $actualHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -116,7 +116,7 @@ try {
   }
 
   if ($process.ExitCode -notin @(0, 1641, 3010)) {
-    $message = Get-InstallerErrorMessage -ExitCode $process.ExitCode -LogPath $logPath
+    $message = Get-InstallerErrorMessage -ExitCode $process.ExitCode
     throw "$message`n終了コード: $($process.ExitCode)`nログ: $logPath"
   }
 
