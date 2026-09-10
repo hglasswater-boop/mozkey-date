@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="src/data/images/icon.svg" width="112" height="112" alt="Mozkey icon">
+  <img src="src/data/images/icon.svg" width="112" height="112" alt="Mozkey-date icon">
 </p>
 
-<h1 align="center">Mozkey（もずきー）</h1>
+<h1 align="center">Mozkey-date（もずきー）</h1>
 
 <p align="center">
   <strong>Mozc をベースに、遅延付きライブ変換・ローカル Zenz 補正・ダークテーマ対応<br>句読点単打確定・文脈を見た変換補正などを統合した、ローカルファーストな日本語入力 fork です。</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/koyasi777/mozkey/releases"><img alt="Releases" src="https://img.shields.io/github/v/release/koyasi777/mozkey?include_prereleases&label=release"></a>
+  <a href="https://github.com/hglasswater-boop/mozkey-date/releases"><img alt="Releases" src="https://img.shields.io/github/v/release/hglasswater-boop/mozkey-date?include_prereleases&label=release"></a>
   <img alt="Based on Mozc" src="https://img.shields.io/badge/based%20on-Mozc-88A2DD">
   <img alt="Local first" src="https://img.shields.io/badge/local--first-Zenz-53D4C7">
   <img alt="Release build" src="https://img.shields.io/badge/release-Windows%20MSI-178B8B">
@@ -19,7 +19,7 @@
 
 <br>
 
-Mozkey（もずきー）は [google/mozc](https://github.com/google/mozc) をベースにした非公式フォークです。
+Mozkey-date（もずきー）は [google/mozc](https://github.com/google/mozc) をベースにした非公式フォークです。
 
 本 fork は、主に自分の Windows / macOS 環境で日常的に使うために、Mozc に入力補助・ライブ変換・文脈補正・ローカル Zenz 補正・オフライン配布向けの調整を加えたものです。
 
@@ -41,15 +41,15 @@ Windows に加え、macOS でもこの fork の Zenz 文脈取得とローカル
 
 Linux については、upstream Mozc 自体は対応していますが、この fork 固有の Zenz 構成や追加機能はまだ実機確認できていません。
 
-Windows 用のビルド済み MSI は [Releases](https://github.com/koyasi777/mozkey/releases) からダウンロードできます。
+Windows 用のビルド済み MSI は [Releases](https://github.com/hglasswater-boop/mozkey-date/releases) からダウンロードできます。
 
-- 通常の x64 Windows では、Releases にある最新の `Mozkey_v*_x64.msi` を使用してください。
-- Windows on Arm（ARM64）では、その release に ARM64 と明記された MSI が含まれる場合は ARM64 版を使用してください。ARM64 MSI は Mozkey 本体、`mozc_zenz_scorer.exe`、`llama-server.exe` を native ARM64 payload として構成します。
+- 通常の x64 Windows では、Releases にある最新の `MozkeyDate-Windows.msi` を使用してください。
+- Windows on Arm（ARM64）では、その release に ARM64 と明記された MSI が含まれる場合は ARM64 版を使用してください。ARM64 MSI は Mozkey-date 本体、`mozc_zenz_scorer.exe`、`llama-server.exe` を native ARM64 payload として構成します。
 - `universal` MSI は x64 / ARM64 の全実行ファイルを dual-native 化した whole-product package ではありません。通常の配布選択では architecture-specific な x64 / ARM64 MSI を優先してください。
 - 本 fork のリリースは個人用の experimental build として公開しています。
 - Zenz 同梱版は、ローカル推論 runtime と GGUF model を含むため、従来の offline MSI よりファイルサイズが大きくなります。
 - Windows 向けリリース MSI には、ローカル生成した `daily` system dictionary profile を同梱する場合があります。
-- `daily` profile には、Mozc 標準辞書に加えて、merge-ut-dictionaries、dic-nico-intersection-pixiv、mozcdic-ut-personal-names、Mozkey syntax / expressive kana guard dictionary 由来の生成辞書が含まれます。
+- `daily` profile には、Mozc 標準辞書に加えて、merge-ut-dictionaries、dic-nico-intersection-pixiv、mozcdic-ut-personal-names、Mozkey-date syntax / expressive kana guard dictionary 由来の生成辞書が含まれます。
 - 外部辞書・同梱 runtime・model の出典とライセンス note については [Third-party notices](THIRD_PARTY_NOTICES.md) を参照してください。
 
 > [!WARNING]
@@ -84,8 +84,8 @@ Windows 用のビルド済み MSI は [Releases](https://github.com/koyasi777/mo
 - MS-IME 風キー設定では、確定済み文字列を選択した状態で Space を押すと再変換し、未選択時は従来どおり空白を入力
 - Windows 版で左 Shift / 右 Shift / 左 Ctrl / 右 Ctrl を個別キーとして設定画面から割り当て可能
 - Windows 版で IMEOn / IMEOff に割り当てたキーを押した場合、すでに同じ状態でも IME モードインジケータを表示
-- Windows 版の設定画面から、Mozkey を Windows の既定 IME として明示的に設定し、変更前の既定 IME 設定へ戻せるボタンを追加
-- Windows 版の設定画面から、タスクバーや IME 一覧に表示される Mozkey の IME アイコンを、既定 / モノクロ（黒）/ モノクロ（白）から選択可能
+- Windows 版の設定画面から、Mozkey-date を Windows の既定 IME として明示的に設定し、変更前の既定 IME 設定へ戻せるボタンを追加
+- Windows 版の設定画面から、タスクバーや IME 一覧に表示される Mozkey-date の IME アイコンを、既定 / モノクロ（黒）/ モノクロ（白）から選択可能
 - Windows 版の候補ウィンドウ・サジェストウィンドウ・ライブ変換中のルビ表示について、ライト / ダーク / カスタム配色、サイズ、角丸、透明度、影を設定画面から個別に調整可能
 - Windows 版のルビ表示は、表示先モニターの DPI に合わせて位置・サイズを補正し、左右の余白、上下の余白、入力文字との距離を設定可能
 - サジェストウィンドウとルビ表示は、候補ウィンドウの配色に追従するか、個別のテーマ・カスタム配色を使うかを選択可能
@@ -127,7 +127,7 @@ Windows 用のビルド済み MSI は [Releases](https://github.com/koyasi777/mo
 - accepted として確定した Zenz 候補は、条件を満たす場合は Mozc の user history にも外部変換結果として学習
 - accepted Zenz 補正を直前の通常 Mozc ライブ変換文節へ安全に逆投影できる場合は、文節列全体を外部 multi-segment commit として Mozc history に学習。通常変換候補を再利用できる場合は candidate 構造も引き継ぎ、Zenz が実際に変更した文節だけを強い選択履歴として扱う
 - 通常 Mozc ライブ変換で現在の結果として現れているユーザー辞書由来候補や ASCII / mixed-script 表記を、Zenz live correction の採用時に保護
-- ASCII / mixed-script 表記は、読みを安全に特定できる場合に Zenz prompt 内で一時 placeholder 化し、応答後に元の表記へ復元。`もずきー -> Mozkey` のような表記が `モズキー` へ上書きされるのを避けつつ、前後の文は補正できるようにした
+- ASCII / mixed-script 表記は、読みを安全に特定できる場合に Zenz prompt 内で一時 placeholder 化し、応答後に元の表記へ復元。`もずきー -> Mozkey-date` のような表記が `モズキー` へ上書きされるのを避けつつ、前後の文は補正できるようにした
 - Zenz が `（ ）` / `( )`、`？` / `?`、`！` / `!`、`：` / `:` などの記号幅・記号スタイルを正規化して返した場合でも、元の未確定文字列または通常 Mozc ライブ変換結果でユーザーが使っていた表記へ復元
 - 日本語のみのユーザー辞書語は、自然な読みを Zenz prompt に残したまま、Zenz 応答後に表記の境界を検証し、余分なかな付着を安全に修復できる場合だけ採用するようにした
 - Zenz prompt に使う左文脈は sanitizer を通し、URL、email、file path、token、長い数字列など sensitive-like な文脈は prompt に含めない
@@ -250,7 +250,7 @@ Zenz 補正は設定可能なデバウンス時間の後に実行されます。
 
 Zenz 出力は表示前に検証されます。空出力、短すぎる入力、Mozc 結果と同一の出力、長すぎる出力、不正な文字列、安全でない可能性のある文字列は拒否されます。拒否された場合は、通常の Mozc ライブ変換結果をそのまま表示します。
 
-通常 Mozc ライブ変換で現在の結果として現れているユーザー辞書由来候補や ASCII / mixed-script 表記は、Zenz 採用時に保護されます。ASCII / mixed-script 表記は、読みを安全に特定できる場合に Zenz prompt 内で一時 placeholder 化し、Zenz 応答後に元の表記へ復元します。これにより、`もずきー -> Mozkey` のような表記が `モズキー` のように上書きされることを避けつつ、対象語の前後にある文の補正は採用できるようにしています。
+通常 Mozc ライブ変換で現在の結果として現れているユーザー辞書由来候補や ASCII / mixed-script 表記は、Zenz 採用時に保護されます。ASCII / mixed-script 表記は、読みを安全に特定できる場合に Zenz prompt 内で一時 placeholder 化し、Zenz 応答後に元の表記へ復元します。これにより、`もずきー -> Mozkey-date` のような表記が `モズキー` のように上書きされることを避けつつ、対象語の前後にある文の補正は採用できるようにしています。
 
 また、Zenz が括弧、疑問符、感嘆符、一部の全角 ASCII 記号 などを正規化して返した場合でも、採用前にユーザー可視の記号スタイルを復元します。これは全角化ではなく、現在の未確定文字列または通常 Mozc ライブ変換結果に現れていた表記の保存です。たとえば `（テスト）` は `（ ）` のまま、`(test)` は `( )` のまま維持します。URL、path、ASCII token 風の文脈では、ASCII 記号を不用意に全角化しないよう保守的に扱います。
 
@@ -346,7 +346,7 @@ Zenz ライブ補正では、Zenzai v3/v3.2 の特殊トークン形式に沿っ
 
 句読点・記号の単打確定でも、直前の通常変換確定による学習は次の実テキスト入力まで保留されます。次の操作が Backspace、Escape、Revert、Reset、Undo などの場合、その保留学習は保持せず取り消します。一方、IMEOff / MakeSureIMEOff は取り消しではなく確定後のモード変更として扱い、保留学習は確定扱いにします。
 
-句読点・記号の単打確定直後に Ctrl+Z など、現在のキー設定で Cancel に相当するキーが押され、そのキーがアプリケーションへ渡される場合も、Mozkey 側の保留学習は破棄します。実際に確定済み文字列が取り消されるかどうかは、アプリケーション側の Undo 挙動に従います。
+句読点・記号の単打確定直後に Ctrl+Z など、現在のキー設定で Cancel に相当するキーが押され、そのキーがアプリケーションへ渡される場合も、Mozkey-date 側の保留学習は破棄します。実際に確定済み文字列が取り消されるかどうかは、アプリケーション側の Undo 挙動に従います。
 
 ### 変換キャンセル後のひらがな確定学習
 
@@ -364,7 +364,7 @@ Zenz ライブ補正では、Zenzai v3/v3.2 の特殊トークン形式に沿っ
 
 変換確定直後に Backspace、または現在のキー設定で Cancel に割り当てられたキーが入力された場合、このフォークでは直前に確定した学習結果を取り消し対象として扱います。
 
-句読点・記号の単打確定のように、確定文字列がすでにアプリケーションへ送られており Mozkey 側の通常の Undo context に乗らない場合でも、直後の Ctrl+Z などの Cancel 相当キーは保留学習の取り消しシグナルとして扱います。この場合、キー入力自体はアプリケーションへ渡し、画面上の文字列を実際に戻すかどうかはアプリケーション側の Undo 挙動に任せます。
+句読点・記号の単打確定のように、確定文字列がすでにアプリケーションへ送られており Mozkey-date 側の通常の Undo context に乗らない場合でも、直後の Ctrl+Z などの Cancel 相当キーは保留学習の取り消しシグナルとして扱います。この場合、キー入力自体はアプリケーションへ渡し、画面上の文字列を実際に戻すかどうかはアプリケーション側の Undo 挙動に任せます。
 
 確定した文字列全体を削除した場合は、その確定によるサジェスト履歴およびユーザーセグメント履歴が、以後のサジェストや変換順位に残らないようにします。
 
@@ -424,17 +424,17 @@ Windows 版では、キー設定エディタ上で左 Shift / 右 Shift / 左 Ct
 
 ### Windows 既定 IME 設定
 
-Windows 版では、設定画面の「その他の設定」→「既定の IME」から、Mozkey を Windows の既定 IME として明示的に設定できます。
+Windows 版では、設定画面の「その他の設定」→「既定の IME」から、Mozkey-date を Windows の既定 IME として明示的に設定できます。
 
 この操作はログオン時に自動実行されるものではなく、ユーザーが設定ボタンを押した場合だけ実行されます。
 
 設定時には、変更前の Windows 既定 IME の上書き設定と、日本語入力方式リストの順序を保存します。「以前の Windows 既定 IME 設定に戻す...」ボタンを押すと、保存していた設定へ戻します。
 
-すでに Mozkey が既定 IME として設定されている場合や、未復元のバックアップが残っている場合は、変更前の復元点を上書きしないようにしています。
+すでに Mozkey-date が既定 IME として設定されている場合や、未復元のバックアップが残っている場合は、変更前の復元点を上書きしないようにしています。
 
 ### Windows IME アイコン設定
 
-Windows 版では、設定画面から Mozkey の IME アイコンを切り替えられます。
+Windows 版では、設定画面から Mozkey-date の IME アイコンを切り替えられます。
 
 選択肢は以下です。
 
@@ -442,7 +442,7 @@ Windows 版では、設定画面から Mozkey の IME アイコンを切り替�
 - モノクロ（黒）
 - モノクロ（白）
 
-この設定は、Windows の TSF language profile に登録されている Mozkey の `IconFile` / `IconIndex` を更新し、タスクバーや IME 一覧に表示される IME アイコンへ反映します。
+この設定は、Windows の TSF language profile に登録されている Mozkey-date の `IconFile` / `IconIndex` を更新し、タスクバーや IME 一覧に表示される IME アイコンへ反映します。
 
 適用時には、管理者権限の確認が表示される場合があります。また、Windows 側のアイコン cache や入力方式一覧の更新タイミングにより、タスクバーや IME 一覧のアイコンがすぐに更新されない場合があります。その場合は Windows を再起動してください。
 
@@ -502,7 +502,7 @@ system dictionary の強化
 
 この fork では、外部辞書を元に Mozc の system dictionary を強化するための生成スクリプトを追加しています。
 
-また、外部辞書とは別に、Mozkey 独自の小さな manual override 辞書で、日常語彙・実務語彙・外来語・英語綴り候補を段階的に補強します。通常の日本語語彙は自然な第一候補として、英語綴り候補は第一候補ではなく補助候補として出ることを重視します。評価方針と検証手順は [Koyasi Dictionary Data](src/data/dictionary_koyasi/README.md) から参照できます。
+また、外部辞書とは別に、Mozkey-date 独自の小さな manual override 辞書で、日常語彙・実務語彙・外来語・英語綴り候補を段階的に補強します。通常の日本語語彙は自然な第一候補として、英語綴り候補は第一候補ではなく補助候補として出ることを重視します。評価方針と検証手順は [Koyasi Dictionary Data](src/data/dictionary_koyasi/README.md) から参照できます。
 
 daily local 辞書は主に以下を元に生成できます。
 
@@ -517,7 +517,7 @@ daily local 辞書は主に以下を元に生成できます。
   - 人名・芸名・活動名などを含む人名辞書
   - 生成済み daily 辞書、nico/pixiv delta、Mozc 標準辞書に既に存在する key/value は除外
   - 短すぎる読み、長いカタカナ塊、グループ名風表記、ASCII 表記、記号を含む表記などは除外または弱める
-- Mozkey syntax / expressive kana guard 辞書
+- Mozkey-date syntax / expressive kana guard 辞書
   - 文節区切り崩れの影響が大きいケースだけを小さな生成辞書として補強
   - 例: `と打ちたいのに`、`に分ける`、`した方が`、`したにもかかわらず`、`にまで`、`までに`、`までも`、`肌身離さず`、`になってしまいます`、`になっちゃいます` のような経路を保護
   - 例: `うっそ`、`くっそ`、`やっば`、`ちっす`、`ほえ～`、`ほぇ～` のような完成済み expressive kana を自然なかな候補として補強
@@ -548,10 +548,10 @@ daily local 辞書は主に以下を元に生成できます。
 
 ```bash
 src/mac/installer/zenz_runtime/build_universal_runtime.zsh \
-  "$HOME/Downloads/mozkey-macos-zenz-runtime"
+  "$HOME/Downloads/mozkey-date-macos-zenz-runtime"
 
 src/mac/installer/zenz_runtime/stage_runtime_assets.zsh \
-  "$HOME/Downloads/mozkey-macos-zenz-runtime"
+  "$HOME/Downloads/mozkey-date-macos-zenz-runtime"
 
 cd src
 
@@ -664,16 +664,16 @@ In addition to Windows, the Zenz context / runtime path has been tested on real 
 
 Linux is supported by upstream Mozc itself, but this fork-specific Zenz configuration and added features have not yet been tested on a real Linux environment.
 
-Windows MSI packages are available from [Releases](https://github.com/koyasi777/mozkey/releases).
+Windows MSI packages are available from [Releases](https://github.com/hglasswater-boop/mozkey-date/releases).
 
-- On x64 Windows, use the latest `Mozkey_v*_x64.msi` from Releases.
-- On Windows on Arm (ARM64), when a release contains an MSI explicitly labeled ARM64, use the ARM64 package. The ARM64 MSI packages Mozkey, `mozc_zenz_scorer.exe`, and `llama-server.exe` as native ARM64 payloads.
+- On x64 Windows, use the latest `MozkeyDate-Windows.msi` from Releases.
+- On Windows on Arm (ARM64), when a release contains an MSI explicitly labeled ARM64, use the ARM64 package. The ARM64 MSI packages Mozkey-date, `mozc_zenz_scorer.exe`, and `llama-server.exe` as native ARM64 payloads.
 - The `universal` MSI is not a dual-native whole-product package containing native x64 and ARM64 versions of every executable. Prefer the architecture-specific x64 / ARM64 MSI for normal release installation.
 - For the Zenz-bundled build, choose an MSI whose file name contains `zenz` or `zenz_offline`.
 - Releases from this fork are published as personal experimental builds.
 - Zenz-bundled builds are larger than the traditional offline MSI because they include a local inference runtime and a GGUF model.
 - Windows release MSI packages may include the locally generated `daily` system dictionary profile.
-- The `daily` profile is generated from the Mozc base dictionaries, merge-ut-dictionaries, dic-nico-intersection-pixiv, mozcdic-ut-personal-names, and the Mozkey syntax / expressive kana guard dictionary.
+- The `daily` profile is generated from the Mozc base dictionaries, merge-ut-dictionaries, dic-nico-intersection-pixiv, mozcdic-ut-personal-names, and the Mozkey-date syntax / expressive kana guard dictionary.
 - See [Third-party notices](THIRD_PARTY_NOTICES.md) for source and license notes for bundled runtimes, model files, and generated dictionary data.
 
 > [!WARNING]
@@ -713,7 +713,7 @@ Main features added in this fork
 - Allows assigning left/right Shift and left/right Ctrl separately on Windows
 - Shows the IME mode indicator even when a key assigned to IMEOn or IMEOff is pressed while Mozc is already in that state
 - Adds explicit Windows default IME controls to the config dialog, with restore support for the previous default IME setting
-- Allows choosing the Windows Mozkey IME profile icon from Default, Monochrome (Black), and Monochrome (White) in the config dialog
+- Allows choosing the Windows Mozkey-date IME profile icon from Default, Monochrome (Black), and Monochrome (White) in the config dialog
 - Allows configuring light/dark/custom color themes, size, corner radius, opacity, and shadow separately for the Windows candidate window, suggestion window, and live-conversion ruby display from the config dialog
 - Makes the Windows ruby display use target-monitor DPI-aware positioning and scaling, and allows configuring its horizontal padding, vertical padding, and distance from the input text
 - Allows the suggestion window and ruby display to either follow the candidate window color theme or use their own theme/custom colors
@@ -755,7 +755,7 @@ Main features added in this fork
 - Learns accepted Zenz candidates into Mozc user history as external conversion results when the runtime conditions allow it
 - When an accepted Zenz correction can be safely reverse-projected onto the previous normal Mozc live-conversion segments, learns the projected segment sequence as an external multi-segment commit. If Mozc can reproduce the same key/value candidate through normal conversion, the candidate structure is reused so user history receives evidence closer to a normal conversion commit. Only segments actually changed by Zenz are marked as strong user-selected history.
 - Protects user-dictionary candidates and ASCII / mixed-script surfaces that appear in the current normal Mozc live-conversion result before adopting Zenz live-correction output
-- For ASCII / mixed-script surfaces, temporarily replaces the reading with a placeholder in the Zenz prompt when it can be identified safely, then restores the selected surface after the response, so entries such as `もずきー -> Mozkey` are not silently overwritten as `モズキー` while surrounding text can still be corrected
+- For ASCII / mixed-script surfaces, temporarily replaces the reading with a placeholder in the Zenz prompt when it can be identified safely, then restores the selected surface after the response, so entries such as `もずきー -> Mozkey-date` are not silently overwritten as `モズキー` while surrounding text can still be corrected
 - Preserves user-visible punctuation style when adopting Zenz live-correction output, so brackets and symbols such as `（ ）` / `( )`, `？` / `?`, and `！` / `!` stay in the style chosen by the current composition or Mozc live-conversion result
 - For Japanese-only user-dictionary surfaces, keeps the natural reading in the Zenz prompt and validates the selected surface boundaries after the response, accepting the result only when any extra kana attachment can be repaired safely
 - Sanitizes left context before using it in Zenz prompts, and excludes sensitive-like context such as URLs, email addresses, file paths, tokens, and long digit sequences
@@ -849,21 +849,21 @@ remains visible.
 User-dictionary candidates and ASCII / mixed-script surfaces that appear in the
 current normal Mozc live-conversion result are protected before Zenz output is
 adopted. For ASCII / mixed-script surfaces, when the protected reading can be
-identified safely, such as in `もずきー -> Mozkey`, the reading is temporarily
+identified safely, such as in `もずきー -> Mozkey-date`, the reading is temporarily
 replaced with a placeholder in the Zenz prompt and restored to the selected
 surface after the response. This prevents Zenz from silently overwriting the
 protected word as `モズキー` while still allowing correction of the surrounding
 sentence.
 
 Zenz output may also normalize visible punctuation style. Before adoption,
-Mozkey restores the symbol style from the current composition or normal Mozc
+Mozkey-date restores the symbol style from the current composition or normal Mozc
 live-conversion result. This is preservation rather than fullwidth
 normalization: `（test）` stays fullwidth when that was the source style, while
 `(test)` stays ASCII. ASCII-token-like contexts such as code-like words, paths,
 and URLs are handled conservatively to avoid unwanted widening.
 
 Japanese-only user-dictionary surfaces keep their natural reading in the Zenz
-prompt. After the Zenz response, Mozkey validates the selected surface
+prompt. After the Zenz response, Mozkey-date validates the selected surface
 boundaries. If extra kana is attached immediately after the protected surface,
 the result is accepted only when the attachment can be repaired safely; otherwise
 the normal Mozc live-conversion result remains visible.
@@ -905,17 +905,17 @@ store segment-local or lexical-unit feedback. Accepted Zenz corrections may stil
 be learned into Mozc user history as external conversion results, but that is a
 separate Mozc-history path rather than an additional Zenz feedback-store record.
 When the accepted Zenz result can be safely reverse-projected onto the previous
-normal Mozc live-conversion segments, Mozkey learns the projected segment
+normal Mozc live-conversion segments, Mozkey-date learns the projected segment
 sequence as an external multi-segment commit. If Mozc can reproduce the same
 key/value candidate through normal conversion, the candidate structure is reused
 so user history receives evidence closer to a normal conversion commit. Only
 segments actually changed by Zenz are marked as strong user-selected commits. If
 reverse projection fails, or if the privacy / password gates reject the text,
-Mozkey falls back to full-sequence learning only.
+Mozkey-date falls back to full-sequence learning only.
 
 Space is treated specifically as a candidate-change operation, not as a plain
 cancel back into the live-conversion composition. When Space is pressed while a
-Zenz correction is visible, Mozkey restores the underlying Mozc conversion as an
+Zenz correction is visible, Mozkey-date restores the underlying Mozc conversion as an
 ordinary conversion result without opening the candidate window yet. If the user
 then types more text, the restored Mozc conversion is committed first and the
 new text starts a fresh composition. Pressing Space again follows the ordinary
@@ -1036,7 +1036,7 @@ confirmed.
 
 When a cancel-equivalent key such as Ctrl+Z is pressed immediately after a
 direct-commit punctuation/symbol and that key is echoed back to the application,
-Mozkey also discards the pending learning. Whether the already-committed text is
+Mozkey-date also discards the pending learning. Whether the already-committed text is
 actually undone depends on the application's own Undo behavior.
 
 ### Hiragana learning after conversion cancel
@@ -1055,7 +1055,7 @@ With live conversion enabled, the same behavior applies when the user explicitly
 
 When a committed conversion is immediately followed by Backspace, or by a key assigned to Cancel in the current keymap, this fork treats it as a revert signal for the just-committed learning result.
 
-For direct-commit punctuations/symbols, the committed text may already have been sent to the application without using Mozkey's normal Undo context. In that case, a cancel-equivalent key such as Ctrl+Z still discards Mozkey's pending learning, while the key itself is passed through to the application. Whether the visible text is actually undone depends on the application's own Undo behavior.
+For direct-commit punctuations/symbols, the committed text may already have been sent to the application without using Mozkey-date's normal Undo context. In that case, a cancel-equivalent key such as Ctrl+Z still discards Mozkey-date's pending learning, while the key itself is passed through to the application. Whether the visible text is actually undone depends on the application's own Undo behavior.
 
 If the entire committed text is erased, the just-committed suggestion history and user segment history do not continue to affect later suggestions or conversions.
 
@@ -1117,17 +1117,17 @@ as state-changing toggles.
 
 ### Windows default IME setting
 
-On Windows, the config dialog can explicitly set Mozkey as the Windows default IME.
+On Windows, the config dialog can explicitly set Mozkey-date as the Windows default IME.
 
 This operation is not performed automatically at login. It is executed only when the user presses the setting button.
 
-Before changing the setting, Mozkey saves the previous Windows default input method override and the Japanese input method order. The restore button restores those saved values.
+Before changing the setting, Mozkey-date saves the previous Windows default input method override and the Japanese input method order. The restore button restores those saved values.
 
-If Mozkey is already the default IME, or if an active restore point already exists, Mozkey does not overwrite the previous restore point.
+If Mozkey-date is already the default IME, or if an active restore point already exists, Mozkey-date does not overwrite the previous restore point.
 
 ### Windows IME icon setting
 
-On Windows, the config dialog can switch the Mozkey IME icon.
+On Windows, the config dialog can switch the Mozkey-date IME icon.
 
 The available styles are:
 
@@ -1135,7 +1135,7 @@ The available styles are:
 - Monochrome (Black)
 - Monochrome (White)
 
-This setting updates the `IconFile` / `IconIndex` values registered in the Windows TSF language profile for Mozkey, and applies to the IME icon shown in the taskbar and IME list.
+This setting updates the `IconFile` / `IconIndex` values registered in the Windows TSF language profile for Mozkey-date, and applies to the IME icon shown in the taskbar and IME list.
 
 Administrator approval may be required when applying this setting. Depending on the Windows icon cache or input-method list refresh timing, the taskbar or IME-list icon may not update immediately. If it does not update, restart Windows.
 
@@ -1187,13 +1187,13 @@ colors to keep the current input mode easy to recognize.
 
 ### Windows vertical writing support
 
-On Windows, Mozkey detects vertical composition geometry and lays out the candidate window, prediction/suggestion display, infolist, and live-conversion ruby for vertical writing. Primary candidate and infolist text uses DirectWrite vertical text rendering.
+On Windows, Mozkey-date detects vertical composition geometry and lays out the candidate window, prediction/suggestion display, infolist, and live-conversion ruby for vertical writing. Primary candidate and infolist text uses DirectWrite vertical text rendering.
 
-The candidate window prefers placement on the left side of a vertical composition. When an application reports a narrow input-line geometry, Mozkey adds placement clearance so that the candidate display does not sit too close to the input text. This adjustment is based on the reported composition geometry rather than application-specific name checks.
+The candidate window prefers placement on the left side of a vertical composition. When an application reports a narrow input-line geometry, Mozkey-date adds placement clearance so that the candidate display does not sit too close to the input text. This adjustment is based on the reported composition geometry rather than application-specific name checks.
 
 The live-conversion ruby display also follows vertical composition geometry. When an uncommitted composition wraps across multiple vertical columns, such as in Word, the renderer keeps the ruby outside the already occupied composition span instead of placing it over an earlier column.
 
-For candidate navigation in vertical writing, Mozkey reinterprets arrow keys only when the active keymap uses the supported existing command bindings.
+For candidate navigation in vertical writing, Mozkey-date reinterprets arrow keys only when the active keymap uses the supported existing command bindings.
 
 - In Suggestion state, Left enters the candidate list.
 - In Conversion / Prediction state, Left / Right move through candidates while Up / Down move between segments.
@@ -1222,7 +1222,7 @@ Enhanced system dictionary
 This fork includes scripts to build an enhanced Mozc system dictionary from
 external dictionary sources.
 
-Separately from the external generated dictionaries, Mozkey also maintains a
+Separately from the external generated dictionaries, Mozkey-date also maintains a
 small tracked manual override dictionary for daily vocabulary, practical
 vocabulary, loanwords, and English spelling candidates. Normal Japanese entries
 are expected to remain natural first candidates, while English spelling entries
@@ -1241,7 +1241,7 @@ The daily local dictionary can be generated from:
   - personal names, stage names, and activity names
   - entries already covered by the generated daily dictionary, nico/pixiv delta dictionary, or base Mozc dictionaries are skipped
   - risky short readings, long katakana-like names, group-like names, ASCII values, and punctuation-heavy values are filtered or demoted
-- Mozkey syntax / expressive kana guard dictionary
+- Mozkey-date syntax / expressive kana guard dictionary
   - small generated guard entries for high-impact segmentation failures
   - for example, protecting paths such as `と打ちたいのに`, `に分ける`, `した方が`, `したにもかかわらず`, `にまで`, `までに`, `までも`, `肌身離さず`, `になってしまいます`, and `になっちゃいます`
   - also adds natural kana candidates for completed expressive forms such as `うっそ`, `くっそ`, `やっば`, `ちっす`, `ほえ～`, `ほぇ～`, and `ほっほーん`
@@ -1272,10 +1272,10 @@ containing `arm64` and `x86_64` slices.
 
 ```bash
 src/mac/installer/zenz_runtime/build_universal_runtime.zsh \
-  "$HOME/Downloads/mozkey-macos-zenz-runtime"
+  "$HOME/Downloads/mozkey-date-macos-zenz-runtime"
 
 src/mac/installer/zenz_runtime/stage_runtime_assets.zsh \
-  "$HOME/Downloads/mozkey-macos-zenz-runtime"
+  "$HOME/Downloads/mozkey-date-macos-zenz-runtime"
 
 cd src
 
