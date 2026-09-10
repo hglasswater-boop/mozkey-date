@@ -89,6 +89,10 @@ jobs:
             echo "About dialog is not using the mozkey-date release version" >&2
             exit 1
           }
+          grep -Fq 'Invoke-WebRequest -UseBasicParsing' src/gui/about_dialog/about_dialog.cc || {
+            echo "About updater bootstrap is not Windows PowerShell 5.1-safe" >&2
+            exit 1
+          }
           grep -Fq 'english_word_dictionary_rewriter' src/rewriter/rewriter.cc || {
             echo "English word dictionary is missing from the release commit" >&2
             exit 1
@@ -103,6 +107,10 @@ jobs:
           }
           grep -Fq 'if ($Force -and $installedTag -eq $tag)' tools/windows/update-mozkey-date.ps1 || {
             echo "Updater does not guard REINSTALL behind same-release -Force repair" >&2
+            exit 1
+          }
+          test -f tools/windows/test-msi-major-upgrade.ps1 || {
+            echo "MSI major-upgrade verification script is missing" >&2
             exit 1
           }
 
