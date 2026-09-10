@@ -21,6 +21,7 @@ jobs:
       github.event.comment.user.login == github.repository_owner &&
       startsWith(github.event.comment.body, '/release ')
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
       - name: Checkout main
@@ -71,9 +72,19 @@ jobs:
             exit 1
           }
 
+          tag_exists=false
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "Tag already exists: $tag" >&2
-            exit 1
+            resolved="$(git rev-list -n 1 "$tag" 2>/dev/null || true)"
+            [[ "$resolved" == "$current_sha" ]] || {
+              echo "Existing tag points elsewhere: tag=$tag expected=$current_sha actual=${resolved:-unknown}" >&2
+              exit 1
+            }
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release already exists: $tag" >&2
+              exit 1
+            fi
+            tag_exists=true
+            echo "Reusing existing unpublished tag $tag at $current_sha"
           fi
 
           latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
@@ -119,9 +130,11 @@ jobs:
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "sha=$current_sha" >> "$GITHUB_OUTPUT"
-          echo "Release tag request verified: $tag -> $current_sha"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+          echo "Release request verified: $tag -> $current_sha"
 
       - name: Create annotated release tag
+        if: steps.release.outputs.tag_exists != 'true'
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -132,9 +145,20 @@ jobs:
           git tag -a "$RELEASE_TAG" -m "Mozkey Date $RELEASE_TAG"
           git push origin "refs/tags/$RELEASE_TAG"
 
-      # Pushes made with GITHUB_TOKEN intentionally do not trigger push-based
-      # workflows. workflow_dispatch is the supported exception, so explicitly
-      # dispatch the Windows release build against the newly created tag.
+      - name: Record Windows release-build baseline
+        id: windows_baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          baseline="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/windows.yaml/runs?event=workflow_dispatch&per_page=100" |
+            jq -r --arg sha "$RELEASE_SHA" --arg branch "$RELEASE_TAG" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == $branch) | .id] | max // 0')"
+          echo "run_id=$baseline" >> "$GITHUB_OUTPUT"
+          echo "Existing tagged Windows workflow baseline: $baseline"
+
       - name: Dispatch tagged Windows release build
         shell: bash
         env:
@@ -146,3 +170,140 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref "$RELEASE_TAG" \
             -f mode=release
+
+      - name: Wait for successful Windows release build
+        id: windows_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          BASELINE_RUN_ID: ${{ steps.windows_baseline.outputs.run_id }}
+        run: |
+          set -euo pipefail
+
+          run_id=""
+          for _ in $(seq 1 180); do
+            run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/windows.yaml/runs?event=workflow_dispatch&per_page=100" |
+              jq -r --arg sha "$RELEASE_SHA" --arg branch "$RELEASE_TAG" --argjson baseline "$BASELINE_RUN_ID" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == $branch and .id > $baseline) | .id] | max // empty')"
+            [[ -n "$run_id" ]] && break
+            sleep 5
+          done
+          [[ -n "$run_id" ]] || {
+            echo "Could not locate the dispatched Windows release build." >&2
+            exit 1
+          }
+          echo "Windows release build run: $run_id"
+
+          for _ in $(seq 1 540); do
+            run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            status="$(jq -r '.status' <<<"$run_json")"
+            conclusion="$(jq -r '.conclusion // empty' <<<"$run_json")"
+            if [[ "$status" == "completed" ]]; then
+              [[ "$conclusion" == "success" ]] || {
+                echo "Windows release build failed: run=$run_id conclusion=$conclusion" >&2
+                exit 1
+              }
+              break
+            fi
+            sleep 5
+          done
+
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+          [[ "$(jq -r '.status' <<<"$run_json")" == "completed" && "$(jq -r '.conclusion' <<<"$run_json")" == "success" ]] || {
+            echo "Windows release build did not complete successfully within the workflow timeout." >&2
+            exit 1
+          }
+
+          artifact_count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" | jq '[.artifacts[] | select(.name == "Mozc64_universal.msi" and (.expired | not))] | length')"
+          [[ "$artifact_count" == "1" ]] || {
+            echo "Expected exactly one universal MSI artifact from run $run_id, found $artifact_count" >&2
+            exit 1
+          }
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Windows release build succeeded with one universal MSI artifact."
+
+      - name: Record publisher baseline
+        id: publisher_baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          baseline="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-windows.yml/runs?event=workflow_dispatch&per_page=100" | jq -r '[.workflow_runs[].id] | max // 0')"
+          echo "run_id=$baseline" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch verified Windows publisher
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_RUN_ID: ${{ steps.windows_run.outputs.run_id }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run release-windows.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f run_id="$WINDOWS_RUN_ID" \
+            -f release_tag="$RELEASE_TAG" \
+            -f release_sha="$RELEASE_SHA"
+
+      - name: Wait for publisher and verify release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          BASELINE_RUN_ID: ${{ steps.publisher_baseline.outputs.run_id }}
+        run: |
+          set -euo pipefail
+
+          publish_run_id=""
+          for _ in $(seq 1 180); do
+            publish_run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-windows.yml/runs?event=workflow_dispatch&per_page=100" |
+              jq -r --arg sha "$RELEASE_SHA" --argjson baseline "$BASELINE_RUN_ID" '[.workflow_runs[] | select(.head_sha == $sha and .id > $baseline) | .id] | max // empty')"
+            [[ -n "$publish_run_id" ]] && break
+            sleep 5
+          done
+          [[ -n "$publish_run_id" ]] || {
+            echo "Could not locate the dispatched Windows publisher." >&2
+            exit 1
+          }
+          echo "Windows publisher run: $publish_run_id"
+
+          for _ in $(seq 1 360); do
+            run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$publish_run_id")"
+            status="$(jq -r '.status' <<<"$run_json")"
+            conclusion="$(jq -r '.conclusion // empty' <<<"$run_json")"
+            if [[ "$status" == "completed" ]]; then
+              [[ "$conclusion" == "success" ]] || {
+                echo "Windows publisher failed: run=$publish_run_id conclusion=$conclusion" >&2
+                exit 1
+              }
+              break
+            fi
+            sleep 5
+          done
+
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$publish_run_id")"
+          [[ "$(jq -r '.status' <<<"$run_json")" == "completed" && "$(jq -r '.conclusion' <<<"$run_json")" == "success" ]] || {
+            echo "Windows publisher did not complete successfully within the workflow timeout." >&2
+            exit 1
+          }
+
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          [[ "$(jq -r '.draft' <<<"$release_json")" == "false" && "$(jq -r '.prerelease' <<<"$release_json")" == "false" ]] || {
+            echo "Release is still draft/prerelease: $RELEASE_TAG" >&2
+            exit 1
+          }
+
+          missing="$(jq -r '["MozkeyDate-Windows.msi","MozkeyDate-Windows.msi.sha256","update-mozkey-date.ps1","update-mozkey-date.cmd"] - [.assets[].name] | .[]' <<<"$release_json")"
+          [[ -z "$missing" ]] || {
+            echo "Release assets missing:" >&2
+            printf '%s\n' "$missing" >&2
+            exit 1
+          }
+
+          echo "Release completed: $RELEASE_TAG"
