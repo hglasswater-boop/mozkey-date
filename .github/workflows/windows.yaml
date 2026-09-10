@@ -52,6 +52,41 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Test Windows PowerShell 5.1 updater compatibility
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($PSVersionTable.PSVersion.Major -ne 5) {
+            throw "Expected Windows PowerShell 5.1, got $($PSVersionTable.PSVersion)"
+          }
+
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path ".\tools\windows\update-mozkey-date.ps1"),
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -ne 0) {
+            $details = ($parseErrors | ForEach-Object { $_.Message }) -join "; "
+            throw "Updater is not valid Windows PowerShell 5.1 syntax: $details"
+          }
+
+          $updater = Get-Content -LiteralPath ".\tools\windows\update-mozkey-date.ps1" -Raw
+          if ($updater -notmatch 'Invoke-WebRequest\s+-UseBasicParsing') {
+            throw "Updater downloads must use Invoke-WebRequest -UseBasicParsing."
+          }
+          if ($updater -match 'utf8NoBOM') {
+            throw "utf8NoBOM is not supported by Set-Content in Windows PowerShell 5.1."
+          }
+
+          $about = Get-Content -LiteralPath ".\src\gui\about_dialog\about_dialog.cc" -Raw
+          if ($about -notmatch 'Invoke-WebRequest -UseBasicParsing') {
+            throw "About updater bootstrap must use Invoke-WebRequest -UseBasicParsing."
+          }
+
+          Write-Host "Windows PowerShell $($PSVersionTable.PSVersion) updater compatibility checks passed."
+
       # Keep the merge-ut working clone separate from generated daily files.
       # This avoids duplicating a potentially large git worktree in every
       # date-keyed dictionary cache while still making a new-day refresh cheap.
