@@ -32,6 +32,11 @@
 #ifndef MOZC_GUI_CONFIG_DIALOG_CONFIG_DIALOG_H_
 #define MOZC_GUI_CONFIG_DIALOG_CONFIG_DIALOG_H_
 
+#include <QCheckBox>
+#include <QFrame>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QObject>
 #include <QTimer>
 #include <map>
@@ -46,7 +51,86 @@
 namespace mozc {
 namespace gui {
 
-class ConfigDialog : public QDialog, private Ui::ConfigDialog {
+// Product-specific additions to the generated Qt Designer UI.
+// English input assistance is independent from Katakana-to-English conversion:
+// it completes ASCII input and can suggest corrected English spellings.
+class MozkeyConfigDialogUi : public Ui::ConfigDialog {
+ public:
+  void setupUi(QDialog *dialog) {
+    Ui::ConfigDialog::setupUi(dialog);
+
+    auto *header = new QFrame(dictionaryTab);
+    header->setObjectName(QStringLiteral("builtInDictionaryHeader"));
+    header->setFrameShape(QFrame::NoFrame);
+    auto *header_layout = new QHBoxLayout(header);
+    header_layout->setContentsMargins(9, 9, 9, 9);
+    header_layout->setSpacing(6);
+
+    auto *title = new QLabel(header);
+    title->setObjectName(QStringLiteral("builtInDictionaryLabel"));
+    title->setText(QString::fromUtf8("内蔵辞書"));
+    header_layout->addWidget(title);
+
+    auto *line = new QFrame(header);
+    line->setObjectName(QStringLiteral("builtInDictionaryLine"));
+    line->setFrameShape(QFrame::HLine);
+    line->setFrameShadow(QFrame::Sunken);
+    header_layout->addWidget(line, 1);
+
+    auto *group = new QFrame(dictionaryTab);
+    group->setObjectName(QStringLiteral("builtInDictionaryGroup"));
+    group->setFrameShape(QFrame::NoFrame);
+    auto *group_layout = new QGridLayout(group);
+    group_layout->setContentsMargins(24, 9, 24, 9);
+    group_layout->setHorizontalSpacing(8);
+    group_layout->setVerticalSpacing(6);
+
+    group_layout->addWidget(localUsageDictionaryCheckBox, 0, 0);
+    localUsageDictionaryCheckBox->setVisible(true);
+
+    englishWordDictionaryCheckBox = new QCheckBox(group);
+    englishWordDictionaryCheckBox->setObjectName(
+        QStringLiteral("englishWordDictionaryCheckBox"));
+    englishWordDictionaryCheckBox->setText(QString::fromUtf8("英単語辞書"));
+    englishWordDictionaryCheckBox->setToolTip(
+        QString::fromUtf8(
+            "英字入力中に英単語の補完候補を表示します。例: prope → property"));
+    group_layout->addWidget(englishWordDictionaryCheckBox, 1, 0);
+
+    englishSpellingCorrectionCheckBox = new QCheckBox(group);
+    englishSpellingCorrectionCheckBox->setObjectName(
+        QStringLiteral("englishSpellingCorrectionCheckBox"));
+    englishSpellingCorrectionCheckBox->setText(
+        QString::fromUtf8("スペルミスの訂正候補"));
+    englishSpellingCorrectionCheckBox->setToolTip(
+        QString::fromUtf8(
+            "英単語の綴りが違うときに正しい候補を表示します。例: recieve → receive"));
+    englishSpellingCorrectionCheckBox->setContentsMargins(18, 0, 0, 0);
+    group_layout->addWidget(englishSpellingCorrectionCheckBox, 2, 0);
+
+    int insert_index = dictionaryTabLayout->indexOf(usageDictionaryHeader);
+    if (insert_index < 0) {
+      insert_index = dictionaryTabLayout->indexOf(specialConversionsHeader);
+    }
+    if (insert_index < 0) {
+      insert_index = dictionaryTabLayout->count();
+    }
+    dictionaryTabLayout->insertWidget(insert_index, header);
+    dictionaryTabLayout->insertWidget(insert_index + 1, group);
+    usageDictionaryHeader->setVisible(false);
+    usageDictionaryGroup->setVisible(false);
+
+    englishSpellingCorrectionCheckBox->setEnabled(
+        englishWordDictionaryCheckBox->isChecked());
+    QObject::connect(englishWordDictionaryCheckBox, &QCheckBox::toggled,
+                     englishSpellingCorrectionCheckBox, &QCheckBox::setEnabled);
+  }
+
+  QCheckBox *englishWordDictionaryCheckBox = nullptr;
+  QCheckBox *englishSpellingCorrectionCheckBox = nullptr;
+};
+
+class ConfigDialog : public QDialog, private MozkeyConfigDialogUi {
   Q_OBJECT;
 
  public:

@@ -48,6 +48,7 @@
 #include "rewriter/emoji_rewriter.h"
 #include "rewriter/emoticon_rewriter.h"
 #include "rewriter/english_variants_rewriter.h"
+#include "rewriter/english_word_dictionary_rewriter.h"
 #include "rewriter/environmental_filter_rewriter.h"
 #include "rewriter/focus_candidate_rewriter.h"
 #include "rewriter/ivs_variants_rewriter.h"
@@ -416,6 +417,7 @@ Rewriter::Rewriter(const engine::Modules& modules) {
   AddRewriter(std::make_unique<LanguageAwareRewriter>(pos_matcher, dictionary));
   AddRewriter(std::make_unique<TransliterationRewriter>(pos_matcher));
   AddRewriter(std::make_unique<EnglishVariantsRewriter>(pos_matcher));
+  AddRewriter(std::make_unique<EnglishWordDictionaryRewriter>());
   AddRewriter(make_unique_from_tuples<NumberRewriter>(
       data_manager.GetCounterSuffixSortedArray(), pos_matcher));
   AddRewriter(apply_from_tuples(CollocationRewriter::Create, pos_matcher,
