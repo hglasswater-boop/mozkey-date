@@ -1,11 +1,6 @@
 name: Publish Windows release
 
 on:
-  workflow_run:
-    workflows:
-      - CI for Windows
-    types:
-      - completed
   workflow_dispatch:
     inputs:
       run_id:
@@ -26,73 +21,36 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-windows-${{ inputs.release_sha || github.event.workflow_run.head_sha || github.run_id }}
+  group: publish-windows-${{ inputs.release_sha }}
   cancel-in-progress: false
 
 jobs:
   metadata:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       (github.event.workflow_run.event == 'push' ||
-        github.event.workflow_run.event == 'workflow_dispatch'))
     runs-on: ubuntu-latest
-    outputs:
-      should_release: ${{ steps.release_tag.outputs.should_release }}
-      tag: ${{ steps.release_tag.outputs.tag }}
-      target_sha: ${{ steps.context.outputs.target_sha }}
-      target_run_id: ${{ steps.context.outputs.target_run_id }}
 
     steps:
-      - name: Resolve release context
-        id: context
-        shell: bash
-        env:
-          DISPATCH_RUN_ID: ${{ inputs.run_id }}
-          DISPATCH_TAG: ${{ inputs.release_tag }}
-          DISPATCH_SHA: ${{ inputs.release_sha }}
-          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
-          EVENT_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            target_run_id="$DISPATCH_RUN_ID"
-            target_sha="$DISPATCH_SHA"
-            requested_tag="$DISPATCH_TAG"
-
-            [[ "$target_run_id" =~ ^[0-9]+$ ]] || {
-              echo "run_id must be numeric: $target_run_id" >&2
-              exit 1
-            }
-            [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] || {
-              echo "release_sha must be a full lowercase commit SHA: $target_sha" >&2
-              exit 1
-            }
-            [[ "$requested_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "release_tag must be vX.Y.Z: $requested_tag" >&2
-              exit 1
-            }
-          else
-            target_run_id="$EVENT_RUN_ID"
-            target_sha="$EVENT_RUN_SHA"
-            requested_tag=""
-          fi
-
-          echo "target_run_id=$target_run_id" >> "$GITHUB_OUTPUT"
-          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
-          echo "requested_tag=$requested_tag" >> "$GITHUB_OUTPUT"
-          echo "Release context: event=$GITHUB_EVENT_NAME run=$target_run_id sha=$target_sha tag=${requested_tag:-auto}"
-
-      - name: Verify candidate Windows CI run
+      - name: Validate release inputs and Windows CI run
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_RUN_ID: ${{ steps.context.outputs.target_run_id }}
-          TARGET_SHA: ${{ steps.context.outputs.target_sha }}
+          TARGET_RUN_ID: ${{ inputs.run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
+
+          [[ "$TARGET_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "run_id must be numeric: $TARGET_RUN_ID" >&2
+            exit 1
+          }
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "release_tag must be vX.Y.Z: $RELEASE_TAG" >&2
+            exit 1
+          }
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "release_sha must be a full lowercase commit SHA: $RELEASE_SHA" >&2
+            exit 1
+          }
 
           run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TARGET_RUN_ID")"
           run_name="$(jq -r '.name' <<<"$run_json")"
@@ -106,16 +64,16 @@ jobs:
             echo "run_id does not identify CI for Windows: name=$run_name path=$run_path" >&2
             exit 1
           }
-          [[ "$run_sha" == "$TARGET_SHA" ]] || {
-            echo "Candidate run SHA mismatch: expected=$TARGET_SHA actual=$run_sha" >&2
+          [[ "$run_sha" == "$RELEASE_SHA" ]] || {
+            echo "Candidate run SHA mismatch: expected=$RELEASE_SHA actual=$run_sha" >&2
             exit 1
           }
           [[ "$run_status" == "completed" && "$run_conclusion" == "success" ]] || {
             echo "Candidate Windows CI has not succeeded: status=$run_status conclusion=$run_conclusion" >&2
             exit 1
           }
-          [[ "$run_event" == "workflow_dispatch" || "$run_event" == "push" ]] || {
-            echo "Unexpected candidate Windows CI event: $run_event" >&2
+          [[ "$run_event" == "workflow_dispatch" ]] || {
+            echo "Release candidate must come from an explicit workflow_dispatch: event=$run_event" >&2
             exit 1
           }
 
@@ -125,72 +83,45 @@ jobs:
             exit 1
           }
 
-          echo "Verified successful Windows CI run $TARGET_RUN_ID for $TARGET_SHA with one universal MSI artifact."
+          echo "Verified successful Windows release build $TARGET_RUN_ID for $RELEASE_SHA."
 
       - name: Checkout release target
         uses: actions/checkout@v6
         with:
-          ref: ${{ steps.context.outputs.target_sha }}
+          ref: ${{ inputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Find and verify release tag
-        id: release_tag
+      - name: Verify immutable release tag and source metadata
         shell: bash
         env:
-          TARGET_SHA: ${{ steps.context.outputs.target_sha }}
-          REQUESTED_TAG: ${{ steps.context.outputs.requested_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
+
+          tag_sha="$(git rev-list -n 1 "$RELEASE_TAG" 2>/dev/null || true)"
+          [[ "$tag_sha" == "$RELEASE_SHA" ]] || {
+            echo "Release tag mismatch: tag=$RELEASE_TAG expected=$RELEASE_SHA actual=${tag_sha:-missing}" >&2
+            exit 1
+          }
 
           matches=()
           while IFS= read -r ref; do
             [[ -n "$ref" ]] || continue
             resolved="$(git rev-list -n 1 "$ref")"
-            if [[ "$resolved" == "$TARGET_SHA" ]]; then
-              matches+=("${ref#refs/tags/}")
-            fi
+            [[ "$resolved" == "$RELEASE_SHA" ]] && matches+=("${ref#refs/tags/}")
           done < <(git for-each-ref --format='%(refname)' 'refs/tags/v*')
-
-          if (( ${#matches[@]} == 0 )); then
-            if [[ -n "$REQUESTED_TAG" ]]; then
-              echo "Requested release tag $REQUESTED_TAG does not point at $TARGET_SHA." >&2
-              exit 1
-            fi
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            echo "No v* tag points at $TARGET_SHA; nothing to publish."
-            exit 0
-          fi
-
-          if (( ${#matches[@]} != 1 )); then
-            printf 'Multiple v* tags point at %s: %s\n' "$TARGET_SHA" "${matches[*]}" >&2
+          if (( ${#matches[@]} != 1 )) || [[ "${matches[0]}" != "$RELEASE_TAG" ]]; then
+            printf 'Release SHA must have exactly one v* tag. Found: %s\n' "${matches[*]:-none}" >&2
             exit 1
           fi
-
-          tag="${matches[0]}"
-          if [[ -n "$REQUESTED_TAG" && "$REQUESTED_TAG" != "$tag" ]]; then
-            echo "Requested tag mismatch: requested=$REQUESTED_TAG resolved=$tag" >&2
-            exit 1
-          fi
-
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Preparing $tag from $TARGET_SHA"
-
-      - name: Verify release version metadata
-        if: steps.release_tag.outputs.should_release == 'true'
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
-        run: |
-          set -euo pipefail
 
           expected="${RELEASE_TAG#v}"
           major="$(sed -n 's/^MOZKEY_RELEASE_VERSION_MAJOR = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
           minor="$(sed -n 's/^MOZKEY_RELEASE_VERSION_MINOR = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
           patch="$(sed -n 's/^MOZKEY_RELEASE_VERSION_PATCH = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
           actual="${major}.${minor}.${patch}"
-
           [[ "$actual" == "$expected" ]] || {
             echo "Release tag/version mismatch: tag=$RELEASE_TAG source=v$actual" >&2
             exit 1
@@ -231,7 +162,6 @@ jobs:
 
   verify_upgrade:
     needs: metadata
-    if: needs.metadata.outputs.should_release == 'true'
     runs-on: windows-2025
     timeout-minutes: 20
 
@@ -239,7 +169,7 @@ jobs:
       - name: Checkout release target
         uses: actions/checkout@v6
         with:
-          ref: ${{ needs.metadata.outputs.target_sha }}
+          ref: ${{ inputs.release_sha }}
           persist-credentials: false
 
       - name: Download candidate universal Windows MSI
@@ -249,13 +179,13 @@ jobs:
           path: candidate
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ needs.metadata.outputs.target_run_id }}
+          run-id: ${{ inputs.run_id }}
 
       - name: Download previous released Windows MSI
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           $ErrorActionPreference = "Stop"
           $headers = @{
@@ -302,7 +232,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: windows-msi-upgrade-logs-${{ needs.metadata.outputs.tag }}
+          name: windows-msi-upgrade-logs-${{ inputs.release_tag }}
           path: upgrade-logs
           if-no-files-found: ignore
 
@@ -313,7 +243,6 @@ jobs:
     if: >-
       always() &&
       needs.metadata.result == 'success' &&
-      needs.metadata.outputs.should_release == 'true' &&
       needs.verify_upgrade.result == 'success'
     runs-on: ubuntu-latest
 
@@ -321,20 +250,20 @@ jobs:
       - name: Checkout release target
         uses: actions/checkout@v6
         with:
-          ref: ${{ needs.metadata.outputs.target_sha }}
+          ref: ${{ inputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Verify release tag remains immutable
         shell: bash
         env:
-          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
-          TARGET_SHA: ${{ needs.metadata.outputs.target_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
           actual_sha="$(git rev-list -n 1 "$RELEASE_TAG")"
-          [[ "$actual_sha" == "$TARGET_SHA" ]] || {
-            echo "Release tag moved: tag=$RELEASE_TAG expected=$TARGET_SHA actual=$actual_sha" >&2
+          [[ "$actual_sha" == "$RELEASE_SHA" ]] || {
+            echo "Release tag moved: tag=$RELEASE_TAG expected=$RELEASE_SHA actual=$actual_sha" >&2
             exit 1
           }
 
@@ -345,7 +274,7 @@ jobs:
           path: release
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ needs.metadata.outputs.target_run_id }}
+          run-id: ${{ inputs.run_id }}
 
       - name: Verify MSI ProductVersion and UpgradeCode
         shell: bash
@@ -399,7 +328,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
 
