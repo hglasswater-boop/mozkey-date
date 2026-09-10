@@ -1,0 +1,148 @@
+name: Tag Windows release
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: mozkey-date-release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, '/release ')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Parse and verify release request
+        id: release
+        shell: bash
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          body="$(printf '%s' "$COMMENT_BODY" | tr -d '\r')"
+          if [[ ! "$body" =~ ^/release[[:space:]]+(v[0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$ ]]; then
+            echo "Release command must be exactly: /release vX.Y.Z" >&2
+            exit 1
+          fi
+          tag="${BASH_REMATCH[1]}"
+
+          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          merged_at="$(jq -r '.merged_at // empty' <<<"$pr_json")"
+          merge_sha="$(jq -r '.merge_commit_sha // empty' <<<"$pr_json")"
+          [[ -n "$merged_at" && -n "$merge_sha" ]] || {
+            echo "Release commands are accepted only on merged pull requests." >&2
+            exit 1
+          }
+
+          current_sha="$(git rev-parse HEAD)"
+          [[ "$merge_sha" == "$current_sha" ]] || {
+            echo "The release command must be posted on the pull request merged at current main HEAD." >&2
+            echo "PR merge SHA: $merge_sha" >&2
+            echo "main HEAD:    $current_sha" >&2
+            exit 1
+          }
+
+          major="$(sed -n 's/^MOZKEY_RELEASE_VERSION_MAJOR = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
+          minor="$(sed -n 's/^MOZKEY_RELEASE_VERSION_MINOR = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
+          patch="$(sed -n 's/^MOZKEY_RELEASE_VERSION_PATCH = \([0-9][0-9]*\)$/\1/p' src/version.bzl)"
+          source_tag="v${major}.${minor}.${patch}"
+          [[ "$tag" == "$source_tag" ]] || {
+            echo "Release command/version mismatch: command=$tag source=$source_tag" >&2
+            exit 1
+          }
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Tag already exists: $tag" >&2
+            exit 1
+          fi
+
+          latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          if [[ -n "$latest_tag" ]]; then
+            latest_version="${latest_tag#v}"
+            requested_version="${tag#v}"
+            highest="$(printf '%s\n%s\n' "$latest_version" "$requested_version" | sort -V | tail -n 1)"
+            [[ "$highest" == "$requested_version" && "$latest_version" != "$requested_version" ]] || {
+              echo "Release version must be newer than latest release: latest=$latest_tag requested=$tag" >&2
+              exit 1
+            }
+
+            if git diff --quiet "$latest_tag"...HEAD -- . \
+              ':(exclude)src/version.bzl' \
+              ':(exclude).github/**' \
+              ':(exclude)README.md' \
+              ':(exclude)docs/**'; then
+              echo "Refusing a version-only/metadata-only release." >&2
+              exit 1
+            fi
+          fi
+
+          grep -q 'Version::GetMozkeyReleaseVersion()' src/gui/about_dialog/about_dialog.cc || {
+            echo "About dialog is not using the mozkey-date release version." >&2
+            exit 1
+          }
+          grep -q 'Invoke-WebRequest -UseBasicParsing' src/gui/about_dialog/about_dialog.cc || {
+            echo "About updater is missing Windows PowerShell 5.1-safe downloading." >&2
+            exit 1
+          }
+          grep -q 'dateConversionFormatListWidget' src/gui/config_dialog/config_dialog.cc || {
+            echo "Date conversion settings UI is missing." >&2
+            exit 1
+          }
+          grep -q 'if ($Force -and $installedTag -eq $tag)' tools/windows/update-mozkey-date.ps1 || {
+            echo "Updater major-upgrade repair guard is missing." >&2
+            exit 1
+          }
+          test -f tools/windows/test-msi-major-upgrade.ps1 || {
+            echo "MSI major-upgrade verification script is missing." >&2
+            exit 1
+          }
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$current_sha" >> "$GITHUB_OUTPUT"
+          echo "Release tag request verified: $tag -> $current_sha"
+
+      - name: Create annotated release tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "Mozkey Date $RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      # Pushes made with GITHUB_TOKEN intentionally do not trigger push-based
+      # workflows. workflow_dispatch is the supported exception, so explicitly
+      # dispatch the Windows release build against the newly created tag.
+      - name: Dispatch tagged Windows release build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run windows.yaml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG" \
+            -f mode=release

@@ -225,8 +225,8 @@ AboutDialog::AboutDialog(QWidget *parent)
         "if($null -eq $asset){throw 'update-mozkey-date.ps1 is missing'};"
         "$path=Join-Path $env:TEMP ('mozkey-date-updater-' + "
         "[Guid]::NewGuid().ToString('N') + '.ps1');"
-        "Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url "
-        "-OutFile $path;"
+        "Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "
+        "$asset.browser_download_url -OutFile $path;"
         "$quoted='\"' + $path + '\"';"
         "Start-Process -FilePath 'powershell.exe' -ArgumentList "
         "@('-NoProfile','-ExecutionPolicy','Bypass','-File',$quoted);");
