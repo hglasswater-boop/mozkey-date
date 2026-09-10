@@ -9,7 +9,7 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
   "$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/hglasswater-boop/mozkey-date/releases/latest' -Headers $headers;" ^
   "$asset = $release.assets | Where-Object { $_.name -eq 'update-mozkey-date.ps1' } | Select-Object -First 1;" ^
   "if (-not $asset) { throw ('Release ' + $release.tag_name + ' に update-mozkey-date.ps1 がありません。') };" ^
-  "Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile '%BOOTSTRAP%'"
+  "Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -Headers $headers -OutFile '%BOOTSTRAP%'"
 
 if errorlevel 1 (
   echo 最新の更新スクリプトを取得できませんでした。
