@@ -292,7 +292,6 @@ jobs:
       # is shared with Qt and dependency caches. Zero idle delay lets Bazel run
       # cache GC between the test and package invocations on ephemeral runners.
       - name: Test date rewriter
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') }}
         shell: cmd
         working-directory: .\src
         env:
