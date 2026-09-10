@@ -1327,6 +1327,50 @@ std::optional<ParsedDateExpression> ParseSeparatedDateExpression(
   return std::nullopt;
 }
 
+std::optional<RewriterInterface::ResizeSegmentsRequest>
+GetSeparatedDateResizeRequest(const ConversionRequest& request,
+                              const Segments& segments) {
+  if (segments.conversion_segments_size() <= 1) {
+    return std::nullopt;
+  }
+
+  std::string combined_key;
+  size_t raw_key_len = 0;
+  for (const Segment& segment : segments.conversion_segments()) {
+    combined_key.append(segment.key());
+    raw_key_len += segment.key_len();
+  }
+
+  const size_t key_len = Util::CharsLen(combined_key);
+  if (key_len == 0 || key_len > std::numeric_limits<uint8_t>::max()) {
+    return std::nullopt;
+  }
+
+  std::optional<ParsedDateExpression> parsed =
+      ParseSeparatedDateExpression(combined_key);
+  if (!parsed) {
+    parsed = ParseSeparatedDateExpression(
+        request.composer().GetRawSubString(0, raw_key_len));
+  }
+  if (!parsed) {
+    return std::nullopt;
+  }
+
+  if (!parsed->has_year) {
+    const absl::TimeZone tz = Clock::GetTimeZone();
+    const uint32_t current_year = static_cast<uint32_t>(
+        absl::ToCivilDay(Clock::GetAbslTime(), tz).year());
+    if (!IsValidDate(current_year, parsed->month, parsed->day)) {
+      return std::nullopt;
+    }
+  }
+
+  return RewriterInterface::ResizeSegmentsRequest{
+      .segment_index = 0,
+      .segment_sizes = {static_cast<uint8_t>(key_len), 0, 0, 0, 0, 0, 0, 0},
+  };
+}
+
 std::optional<ParsedDateExpression> GetSeparatedDateExpression(
     const composer::ComposerData& composer, const Segments& segments) {
   DCHECK_EQ(segments.conversion_segments_size(), 1);
@@ -1366,7 +1410,7 @@ void AppendDateCandidateIfMissing(std::string candidate,
 bool AppendFullDateCandidates(
     uint32_t year, uint32_t month, uint32_t day,
     absl::Span<const std::string> extra_date_formats,
-    std::vector<DateCandidate>* results) {
+    bool include_month_day_candidates, std::vector<DateCandidate>* results) {
   if (!IsValidDate(year, month, day)) {
     return false;
   }
@@ -1375,6 +1419,12 @@ bool AppendFullDateCandidates(
       absl::FromCivil(absl::CivilSecond(year, month, day, 0, 0, 0), tz);
   for (const absl::string_view date_format : extra_date_formats) {
     AppendDateCandidateIfMissing(absl::FormatTime(date_format, at, tz),
+                                 results);
+  }
+  if (include_month_day_candidates) {
+    AppendDateCandidateIfMissing(absl::StrFormat("%d月%d日", month, day),
+                                 results);
+    AppendDateCandidateIfMissing(absl::StrFormat("%02d/%02d", month, day),
                                  results);
   }
   for (std::string candidate :
@@ -1420,7 +1470,7 @@ bool RewriteConsecutiveEightDigits(
     return false;
   }
   return AppendFullDateCandidates(year, month, day, extra_date_formats,
-                                  results);
+                                  false, results);
 }
 }  // namespace
 
@@ -1464,7 +1514,8 @@ bool DateRewriter::RewriteConsecutiveDigits(
           absl::ToCivilDay(Clock::GetAbslTime(), tz).year());
     }
     if (!AppendFullDateCandidates(parsed.year, parsed.month, parsed.day,
-                                  extra_date_formats, &results)) {
+                                  extra_date_formats, !parsed.has_year,
+                                  &results)) {
       return false;
     }
   } else if (number_str = GetNDigits(composer, *segments, 2); number_str) {
@@ -1490,6 +1541,12 @@ bool DateRewriter::RewriteConsecutiveDigits(
   }
 
   if (has_explicit_date_input) {
+    results.erase(
+        std::remove_if(results.begin(), results.end(),
+                       [&](const DateCandidate& item) {
+                         return item.candidate == raw_input;
+                       }),
+        results.end());
     int raw_candidate_index = -1;
     for (size_t i = 0; i < segment->candidates_size(); ++i) {
       if (segment->candidate(i).value == raw_input) {
@@ -1721,6 +1778,12 @@ DateRewriter::CheckResizeSegmentsRequest(const ConversionRequest& request,
   if (segments.resized()) {
     // If the given segments are resized by user, don't modify anymore.
     return std::nullopt;
+  }
+
+  if (std::optional<RewriterInterface::ResizeSegmentsRequest>
+          resize_request = GetSeparatedDateResizeRequest(request, segments);
+      resize_request.has_value()) {
+    return resize_request;
   }
 
   for (size_t segment_index = 0;

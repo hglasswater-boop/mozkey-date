@@ -627,6 +627,33 @@ TEST_F(DateRewriterTest, AtokStyleCompactDate) {
   }
 }
 
+TEST_F(DateRewriterTest, AtokStyleSeparatedDateResize) {
+  ClockMock mock_clock(ParseTimeOrDie("2026-09-08T12:00:00Z"));
+  Clock::SetClockForUnitTest(&mock_clock);
+
+  Segments segments;
+  AppendSegment("9", "9", &segments);
+  AppendSegment("・", "・", &segments);
+  AppendSegment("8", "8", &segments);
+
+  auto table = std::make_shared<composer::Table>();
+  const commands::Request command_request;
+  const config::Config config;
+  composer::Composer composer(table, command_request, config);
+  composer.InsertCharacter("9/8");
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetComposer(composer).Build();
+
+  DateRewriter rewriter;
+  const auto resize_request =
+      rewriter.CheckResizeSegmentsRequest(request, segments);
+  ASSERT_TRUE(resize_request.has_value());
+  EXPECT_EQ(resize_request->segment_index, 0);
+  EXPECT_EQ(resize_request->segment_sizes[0], 3);
+
+  Clock::SetClockForUnitTest(nullptr);
+}
+
 TEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {
   ClockMock mock_clock(ParseTimeOrDie("2026-09-08T12:00:00Z"));
   Clock::SetClockForUnitTest(&mock_clock);
@@ -649,6 +676,8 @@ TEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {
               CandidatesAreArray({
                   ValueAndDescAre("9/8", ""),
                   ValueAndDescAre("2026.09.08", "日付"),
+                  ValueAndDescAre("9月8日", "日付"),
+                  ValueAndDescAre("09/08", "日付"),
                   ValueAndDescAre("2026/09/08", "日付"),
                   ValueAndDescAre("2026-09-08", "日付"),
                   ValueAndDescAre("2026年9月8日", "日付"),
@@ -663,10 +692,15 @@ TEST_F(DateRewriterTest, AtokStyleSeparatedDateAndCustomFormat) {
   EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
   EXPECT_EQ(segments.segment(0).candidate(2).value, "2026/09/08");
 
-  InitSegment("９／８", "９／８", &segments);
-  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
-  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
-  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026/09/08");
+  for (const absl::string_view input :
+       {"9-8", "9.8", "09/08", "９／８"}) {
+    InitSegment(input, input, &segments);
+    EXPECT_TRUE(rewriter.Rewrite(request, &segments)) << input;
+    EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08")
+        << input;
+    EXPECT_EQ(segments.segment(0).candidate(2).value, "9月8日") << input;
+    EXPECT_EQ(segments.segment(0).candidate(3).value, "09/08") << input;
+  }
 
   for (const absl::string_view input :
        {"13/1", "9/32", "2026/2/29", "2026//8"}) {
@@ -729,11 +763,13 @@ TEST_F(DateRewriterTest, AtokStyleMultipleCustomFormatsPreserveOrder) {
 
   InitSegment("9/8", "9/8", &segments);
   EXPECT_TRUE(rewriter.Rewrite(request, &segments));
-  ASSERT_GE(segments.segment(0).candidates_size(), 4);
+  ASSERT_GE(segments.segment(0).candidates_size(), 6);
   EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
   EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
   EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
-  EXPECT_EQ(segments.segment(0).candidate(3).value, "2026/09/08");
+  EXPECT_EQ(segments.segment(0).candidate(3).value, "9月8日");
+  EXPECT_EQ(segments.segment(0).candidate(4).value, "09/08");
+  EXPECT_EQ(segments.segment(0).candidate(5).value, "2026/09/08");
 
   InitSegment("きょう", "今日", &segments);
   EXPECT_TRUE(rewriter.Rewrite(request, &segments));
