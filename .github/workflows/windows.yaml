@@ -282,6 +282,12 @@ jobs:
         run: |
           bazelisk build --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s package
 
+      - name: Test upgrade from released v0.2.0
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') }}
+        shell: pwsh
+        run: |
+          .\tools\windows\test_upgrade_install.ps1 -CandidateMsi .\src\bazel-bin\win32\installer\Mozc64.msi
+
       - name: Save x64 Bazel disk cache
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') && steps.bazel-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v5
@@ -305,6 +311,12 @@ jobs:
           ANDROID_NDK_HOME: ""
         run: |
           bazelisk build --config release_build --config win_universal_installer --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s package
+
+      - name: Test release upgrade from v0.2.0
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release') }}
+        shell: pwsh
+        run: |
+          .\tools\windows\test_upgrade_install.ps1 -CandidateMsi .\src\bazel-bin\win32\installer\Mozc64.msi
 
       - name: Save universal Bazel disk cache
         if: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')) && steps.bazel-cache.outputs.cache-hit != 'true' }}
