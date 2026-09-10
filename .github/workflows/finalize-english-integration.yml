@@ -18,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply final integration fixes
+      - name: Apply English source fixes
         shell: python
         run: |
           from pathlib import Path
@@ -50,28 +50,11 @@ jobs:
               text = text.replace(loop_anchor, loop_replacement, 1)
           rewriter.write_text(text, encoding="utf-8")
 
-          windows = Path(".github/workflows/windows.yaml")
-          text = windows.read_text(encoding="utf-8")
-          step = '''      - name: Test English word dictionary\n        shell: cmd\n        working-directory: .\\src\n        env:\n          ANDROID_NDK_HOME: ""\n        run: |\n          bazelisk test --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s //rewriter:english_word_dictionary_rewriter_test\n\n'''
-          anchor = "      - name: Build x64 package\n"
-          if "      - name: Test English word dictionary\n" not in text:
-              if anchor not in text:
-                  raise SystemExit("Windows CI insertion anchor not found")
-              text = text.replace(anchor, step + anchor, 1)
-          windows.write_text(text, encoding="utf-8")
-
-          for path in [
-              Path(".github/workflows/english-word-dictionary-check.yaml"),
-              Path(".github/workflows/finalize-english-integration.yml"),
-          ]:
-              if path.exists():
-                  path.unlink()
-
-      - name: Commit final integration
+      - name: Commit source fixes
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Finalize English dictionary integration"
+          git add src/rewriter/BUILD.bazel src/rewriter/english_word_dictionary_rewriter.cc
+          git commit -m "Harden English dictionary rewriter"
           git push origin HEAD:feature/english-word-dictionary-main
