@@ -16,11 +16,11 @@ jobs:
       - name: Checkout current main based branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Fetch validated English feature source
         shell: bash
-        run: git fetch origin feature/english-word-dictionary:refs/remotes/origin/feature/english-word-dictionary
+        run: git fetch --depth=1 origin feature/english-word-dictionary:refs/remotes/origin/feature/english-word-dictionary
 
       - name: Reapply English input assistance to current main
         shell: bash
