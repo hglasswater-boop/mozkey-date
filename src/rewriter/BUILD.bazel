@@ -712,7 +712,7 @@ mozc_cc_library(
 
 mozc_cc_test(
     name = "english_word_dictionary_rewriter_test",
-    size = "small",
+    size = "large",
     srcs = ["english_word_dictionary_rewriter_test.cc"],
     deps = [
         ":english_word_dictionary_rewriter",

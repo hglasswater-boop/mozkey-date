@@ -54,6 +54,7 @@ namespace {
 constexpr size_t kMaxEnglishWordLength = 40;
 constexpr size_t kMaxPrefixCandidates = 8;
 constexpr size_t kMaxSpellingCandidates = 5;
+constexpr uint8_t kMaxSpellingTier = 60;
 constexpr size_t kPrefixScanLimit = 512;
 
 struct EnglishWordData {
@@ -319,6 +320,11 @@ void AddSpellingMatches(absl::string_view input,
   }
 
   for (const EnglishWordData& entry : kEnglishWordDictionary) {
+    if (entry.tier > kMaxSpellingTier ||
+        std::abs(static_cast<int>(entry.word.size()) -
+                 static_cast<int>(input.size())) > max_distance) {
+      continue;
+    }
     const int distance =
         BoundedDamerauLevenshtein(input, entry.word, max_distance);
     if (distance > 0 && distance <= max_distance) {
