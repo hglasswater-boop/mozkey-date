@@ -1,0 +1,100 @@
+name: Publish verified v0.2.1 Windows release
+
+on:
+  push:
+    branches:
+      - ops/retag-v0.2.1-final
+    paths:
+      - .github/workflows/publish-v0.2.1-final.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout final release commit
+        uses: actions/checkout@v6
+        with:
+          ref: 7a9d3a08acf0479c6c8fc936e6bcbf6c549ce341
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag and release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_sha="$(git rev-list -n 1 v0.2.1)"
+          [[ "$tag_sha" == "7a9d3a08acf0479c6c8fc936e6bcbf6c549ce341" ]] || {
+            echo "v0.2.1 tag mismatch: $tag_sha" >&2
+            exit 1
+          }
+          grep -q '^MOZKEY_RELEASE_VERSION_MAJOR = 0$' src/version.bzl
+          grep -q '^MOZKEY_RELEASE_VERSION_MINOR = 2$' src/version.bzl
+          grep -q '^MOZKEY_RELEASE_VERSION_PATCH = 1$' src/version.bzl
+          grep -q 'Version::GetMozkeyReleaseVersion()' src/gui/about_dialog/about_dialog.cc
+          grep -q 'english_word_dictionary_rewriter' src/rewriter/rewriter.cc
+
+      - name: Download universal Windows MSI
+        uses: actions/download-artifact@v6
+        with:
+          name: Mozc64_universal.msi
+          path: release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 34446374904
+
+      - name: Verify MSI metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y msitools >/dev/null
+
+          property_table="$(msiinfo export release/Mozc64.msi Property | tr -d '\r')"
+          product_version="$(printf '%s\n' "$property_table" | awk -F '\t' '$1 == "ProductVersion" {print $2; exit}')"
+          [[ "$product_version" == "100.2.1" ]] || {
+            echo "MSI ProductVersion mismatch: $product_version" >&2
+            exit 1
+          }
+
+          upgrade_table="$(msiinfo export release/Mozc64.msi Upgrade | tr -d '\r')"
+          printf '%s\n' "$upgrade_table" | grep -qi 'DD94B570-B5E2-4100-9D42-61930C611D8A' || {
+            echo "Expected UpgradeCode not found in MSI" >&2
+            exit 1
+          }
+
+          echo "Verified ProductVersion=$product_version"
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv release/Mozc64.msi release/MozkeyDate-Windows.msi
+          hash="$(sha256sum release/MozkeyDate-Windows.msi | awk '{print $1}')"
+          printf '%s  MozkeyDate-Windows.msi\n' "$hash" > release/MozkeyDate-Windows.msi.sha256
+
+      - name: Publish v0.2.1
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=(
+            release/MozkeyDate-Windows.msi
+            release/MozkeyDate-Windows.msi.sha256
+            tools/windows/update-mozkey-date.ps1
+            tools/windows/update-mozkey-date.cmd
+          )
+
+          if gh release view v0.2.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v0.2.1 "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create v0.2.1 "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Mozkey Date v0.2.1" \
+              --generate-notes \
+              --verify-tag
+          fi
