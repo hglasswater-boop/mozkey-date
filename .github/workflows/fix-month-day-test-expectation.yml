@@ -21,27 +21,37 @@ jobs:
         run: |
           $path = "src/rewriter/date_rewriter_test.cc"
           $text = [System.IO.File]::ReadAllText($path)
-          $old = @'
-  ASSERT_GE(segments.segment(0).candidates_size(), 4);
-  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
-  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
-  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
-  EXPECT_EQ(segments.segment(0).candidate(3).value, "2026/09/08");
-'@
-          $new = @'
-  ASSERT_GE(segments.segment(0).candidates_size(), 6);
-  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
-  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
-  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
-  EXPECT_EQ(segments.segment(0).candidate(3).value, "9月8日");
-  EXPECT_EQ(segments.segment(0).candidate(4).value, "09/08");
-  EXPECT_EQ(segments.segment(0).candidate(5).value, "2026/09/08");
-'@
-          if (-not $text.Contains($old)) {
-            throw "Expected test block was not found"
+
+          $oldAssert = '  ASSERT_GE(segments.segment(0).candidates_size(), 4);'
+          $assertIndex = $text.IndexOf($oldAssert)
+          if ($assertIndex -lt 0) {
+            throw "Expected assertion was not found"
           }
-          $text = $text.Replace($old, $new)
-          [System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))
+          $text = $text.Remove($assertIndex, $oldAssert.Length).Insert(
+            $assertIndex,
+            '  ASSERT_GE(segments.segment(0).candidates_size(), 6);'
+          )
+
+          $oldCandidate = '  EXPECT_EQ(segments.segment(0).candidate(3).value, "2026/09/08");'
+          $candidateIndex = $text.IndexOf($oldCandidate, $assertIndex)
+          if ($candidateIndex -lt 0) {
+            throw "Expected candidate assertion was not found"
+          }
+          $replacement = @(
+            '  EXPECT_EQ(segments.segment(0).candidate(3).value, "9月8日");',
+            '  EXPECT_EQ(segments.segment(0).candidate(4).value, "09/08");',
+            '  EXPECT_EQ(segments.segment(0).candidate(5).value, "2026/09/08");'
+          ) -join [Environment]::NewLine
+          $text = $text.Remove($candidateIndex, $oldCandidate.Length).Insert(
+            $candidateIndex,
+            $replacement
+          )
+
+          [System.IO.File]::WriteAllText(
+            $path,
+            $text,
+            [System.Text.UTF8Encoding]::new($false)
+          )
       - name: Commit fix
         shell: pwsh
         run: |
