@@ -44,7 +44,7 @@ REVISION = 100
 # should match the GitHub release tag without the leading "v".
 MOZKEY_RELEASE_VERSION_MAJOR = 0
 MOZKEY_RELEASE_VERSION_MINOR = 2
-MOZKEY_RELEASE_VERSION_PATCH = 1
+MOZKEY_RELEASE_VERSION_PATCH = 2
 
 # Windows Installer must have a product version that increases independently
 # of the upstream Mozc engine version.  Mozkey v0.7.7 already uses
