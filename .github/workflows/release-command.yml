@@ -6,6 +6,7 @@ on:
       - created
 
 permissions:
+  actions: write
   contents: write
   pull-requests: read
 
@@ -130,3 +131,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$RELEASE_TAG" -m "Mozkey Date $RELEASE_TAG"
           git push origin "refs/tags/$RELEASE_TAG"
+
+      # Pushes made with GITHUB_TOKEN intentionally do not trigger push-based
+      # workflows. workflow_dispatch is the supported exception, so explicitly
+      # dispatch the Windows release build against the newly created tag.
+      - name: Dispatch tagged Windows release build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run windows.yaml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG" \
+            -f mode=release
