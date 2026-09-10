@@ -81,27 +81,27 @@ jobs:
             exit 1
           }
 
-          grep -q 'MOZKEY_MSI_PRODUCT_VERSION' src/version.bzl || {
+          grep -Fq 'MOZKEY_MSI_PRODUCT_VERSION' src/version.bzl || {
             echo "mozkey-date MSI ProductVersion mapping is missing" >&2
             exit 1
           }
-          grep -q 'Version::GetMozkeyReleaseVersion()' src/gui/about_dialog/about_dialog.cc || {
+          grep -Fq 'Version::GetMozkeyReleaseVersion()' src/gui/about_dialog/about_dialog.cc || {
             echo "About dialog is not using the mozkey-date release version" >&2
             exit 1
           }
-          grep -q 'english_word_dictionary_rewriter' src/rewriter/rewriter.cc || {
+          grep -Fq 'english_word_dictionary_rewriter' src/rewriter/rewriter.cc || {
             echo "English word dictionary is missing from the release commit" >&2
             exit 1
           }
-          grep -q 'dateConversionFormatListWidget' src/gui/config_dialog/config_dialog.cc || {
+          grep -Fq 'dateConversionFormatListWidget' src/gui/config_dialog/config_dialog.cc || {
             echo "Date conversion settings UI is missing from the release commit" >&2
             exit 1
           }
-          grep -q 'REINSTALL=ALL' tools/windows/update-mozkey-date.ps1 || {
+          grep -Fq 'REINSTALL=ALL' tools/windows/update-mozkey-date.ps1 || {
             echo "Updater same-release repair handling is missing" >&2
             exit 1
           }
-          grep -q 'if ($Force -and $installedTag -eq $tag)' tools/windows/update-mozkey-date.ps1 || {
+          grep -Fq 'if ($Force -and $installedTag -eq $tag)' tools/windows/update-mozkey-date.ps1 || {
             echo "Updater does not guard REINSTALL behind same-release -Force repair" >&2
             exit 1
           }
@@ -142,9 +142,7 @@ jobs:
             "X-GitHub-Api-Version" = "2022-11-28"
           }
 
-          $releases = Invoke-RestMethod \
-            -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=20" \
-            -Headers $headers
+          $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=20" -Headers $headers
           $previous = $releases |
             Where-Object {
               -not $_.draft -and
@@ -167,10 +165,7 @@ jobs:
           New-Item -ItemType Directory -Path previous-release -Force | Out-Null
           $downloadHeaders = $headers.Clone()
           $downloadHeaders["Accept"] = "application/octet-stream"
-          Invoke-WebRequest -UseBasicParsing \
-            -Uri $asset.url \
-            -Headers $downloadHeaders \
-            -OutFile "previous-release\MozkeyDate-Windows.msi"
+          Invoke-WebRequest -UseBasicParsing -Uri $asset.url -Headers $downloadHeaders -OutFile "previous-release\MozkeyDate-Windows.msi"
 
           Write-Host "Upgrade baseline: $($previous.tag_name)"
 
@@ -178,10 +173,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          .\tools\windows\test-msi-major-upgrade.ps1 \
-            -PreviousMsi ".\previous-release\MozkeyDate-Windows.msi" \
-            -CandidateMsi ".\candidate\Mozc64.msi" \
-            -LogDirectory ".\upgrade-logs"
+          .\tools\windows\test-msi-major-upgrade.ps1 -PreviousMsi ".\previous-release\MozkeyDate-Windows.msi" -CandidateMsi ".\candidate\Mozc64.msi" -LogDirectory ".\upgrade-logs"
 
       - name: Upload MSI upgrade logs on failure
         if: failure()
