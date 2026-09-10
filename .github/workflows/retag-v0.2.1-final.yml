@@ -1,0 +1,61 @@
+name: Retag v0.2.1 final
+
+on:
+  push:
+    branches:
+      - ops/retag-v0.2.1-final
+    paths:
+      - .github/workflows/retag-v0.2.1-final.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  retag-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 7a9d3a08acf0479c6c8fc936e6bcbf6c549ce341
+          fetch-depth: 0
+
+      - name: Verify release metadata and feature commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^MOZKEY_RELEASE_VERSION_MAJOR = 0$' src/version.bzl
+          grep -q '^MOZKEY_RELEASE_VERSION_MINOR = 2$' src/version.bzl
+          grep -q '^MOZKEY_RELEASE_VERSION_PATCH = 1$' src/version.bzl
+          grep -q 'MOZKEY_MSI_PRODUCT_VERSION' src/version.bzl
+          grep -q '"v@MOZKEY_RELEASE_VERSION_MAJOR@.' src/base/version_def_template.h
+          grep -q 'use_english_word_dictionary = 1029' src/protocol/config.proto
+          grep -q 'use_english_spelling_correction = 1030' src/protocol/config.proto
+          test -f src/rewriter/english_word_dictionary_data.inc
+          grep -q 'name = "english_word_dictionary_rewriter_test"' src/rewriter/BUILD.bazel
+          grep -q 'size = "large"' src/rewriter/BUILD.bazel
+          grep -q 'Test English word dictionary' .github/workflows/windows.yaml
+          grep -q "upgrade_code = 'DD94B570-B5E2-4100-9D42-61930C611D8A'" src/win32/installer/build_installer.py
+
+      - name: Move v0.2.1 tag to final main commit
+        shell: bash
+        env:
+          TARGET_SHA: 7a9d3a08acf0479c6c8fc936e6bcbf6c549ce341
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f v0.2.1 "$TARGET_SHA"
+          git push origin refs/tags/v0.2.1 --force
+          remote_sha="$(git ls-remote origin refs/tags/v0.2.1 | awk '{print $1}')"
+          test "$remote_sha" = "$TARGET_SHA"
+
+      - name: Dispatch universal Windows release build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/windows.yaml/dispatches" --input - <<'JSON'
+          {"ref":"v0.2.1","inputs":{"mode":"release"}}
+          JSON
