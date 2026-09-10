@@ -1,0 +1,52 @@
+name: Apply month-day test expectation fix
+
+on:
+  push:
+    branches:
+      - feature/month-day-short-candidates-main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+      - name: Update expected candidate order
+        shell: pwsh
+        run: |
+          $path = "src/rewriter/date_rewriter_test.cc"
+          $text = [System.IO.File]::ReadAllText($path)
+          $old = @'
+  ASSERT_GE(segments.segment(0).candidates_size(), 4);
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
+  EXPECT_EQ(segments.segment(0).candidate(3).value, "2026/09/08");
+'@
+          $new = @'
+  ASSERT_GE(segments.segment(0).candidates_size(), 6);
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "9/8");
+  EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.08");
+  EXPECT_EQ(segments.segment(0).candidate(2).value, "2026_09_08");
+  EXPECT_EQ(segments.segment(0).candidate(3).value, "9月8日");
+  EXPECT_EQ(segments.segment(0).candidate(4).value, "09/08");
+  EXPECT_EQ(segments.segment(0).candidate(5).value, "2026/09/08");
+'@
+          if (-not $text.Contains($old)) {
+            throw "Expected test block was not found"
+          }
+          $text = $text.Replace($old, $new)
+          [System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))
+      - name: Commit fix
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/rewriter/date_rewriter_test.cc
+          git commit -m "Update month-day candidate order test"
+          git push
