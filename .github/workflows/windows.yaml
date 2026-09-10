@@ -76,7 +76,7 @@ jobs:
           if ($updater -notmatch 'Invoke-WebRequest\s+-UseBasicParsing') {
             throw "Updater downloads must use Invoke-WebRequest -UseBasicParsing."
           }
-          if ($updater -match 'utf8NoBOM') {
+          if ($updater -match 'Set-Content[^\r\n]*-Encoding\s+utf8NoBOM') {
             throw "utf8NoBOM is not supported by Set-Content in Windows PowerShell 5.1."
           }
 
