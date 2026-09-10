@@ -59,3 +59,5 @@ jobs:
           git add src/version.bzl src/win32/installer/installer_oss_64bit.wxs
           git commit -m "Fix stale binaries during Windows major upgrade"
           git push origin HEAD:fix/windows-upgrade-stale-binaries
+
+# Trigger after workflow registration on the default branch.
