@@ -1,0 +1,65 @@
+name: Apply weekday custom date format fix
+
+on:
+  push:
+    branches:
+      - fix/weekday-custom-date-format
+    paths:
+      - .github/workflows/apply-weekday-custom-format-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/weekday-custom-date-format
+          persist-credentials: true
+
+      - name: Patch weekday formatting and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('src/rewriter/date_rewriter.cc')
+          text = source.read_text(encoding='utf-8')
+          old = '''  if (data.type == DATE) {
+            const absl::Time at = absl::FromCivil(cm, tz);
+            for (const absl::string_view date_format : extra_date_formats) {
+              results.push_back(absl::FormatTime(date_format, at, tz));
+            }
+          }'''
+          new = '''  if (data.type == DATE || data.type == WEEKDAY) {
+            const absl::Time at = absl::FromCivil(cm, tz);
+            for (const absl::string_view date_format : extra_date_formats) {
+              results.push_back(absl::FormatTime(date_format, at, tz));
+            }
+          }'''
+          assert text.count(old) == 1, f'unexpected source match count: {text.count(old)}'
+          source.write_text(text.replace(old, new), encoding='utf-8')
+
+          test = Path('src/rewriter/date_rewriter_test.cc')
+          text = test.read_text(encoding='utf-8')
+          marker = '''  composer::Composer raw_composer(table, command_request, config);'''
+          insertion = '''  InitSegment("げつよう", "月曜", &segments);
+          EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+          ASSERT_GE(segments.segment(0).candidates_size(), 2);
+          EXPECT_EQ(segments.segment(0).candidate(1).value, "2026.09.14");
+          EXPECT_EQ(segments.segment(0).candidate(1).description, "次の月曜日");
+
+          composer::Composer raw_composer(table, command_request, config);'''
+          assert text.count(marker) == 1, f'unexpected test marker count: {text.count(marker)}'
+          test.write_text(text.replace(marker, insertion), encoding='utf-8')
+          PY
+
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/rewriter/date_rewriter.cc src/rewriter/date_rewriter_test.cc
+          git commit -m "Apply custom date formats to weekday conversions"
+          git push origin HEAD:fix/weekday-custom-date-format
