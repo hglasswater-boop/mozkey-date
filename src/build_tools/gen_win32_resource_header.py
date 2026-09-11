@@ -96,6 +96,27 @@ def main():
 
   version = mozc_version.MozcVersion(options.version_file)
 
+  # mozkey-date deliberately keeps its user-facing/Windows release version
+  # independent from the upstream Mozc engine version. Windows Installer uses
+  # PE FileVersion when deciding whether an existing component file should be
+  # replaced, so Mozc-branded binaries need a monotonically increasing
+  # mozkey-date version as well. Reserve the same 100-199 major range used by
+  # the MSI ProductVersion mapping and keep the Mozc engine version available
+  # separately through MOZC_RES_VERSION_*.
+  release_major = int(
+      version.GetVersionInFormat('@MOZKEY_RELEASE_VERSION_MAJOR@'))
+  release_minor = int(
+      version.GetVersionInFormat('@MOZKEY_RELEASE_VERSION_MINOR@'))
+  release_patch = int(
+      version.GetVersionInFormat('@MOZKEY_RELEASE_VERSION_PATCH@'))
+  windows_release_major = 100 + release_major
+  mozkey_version_number = (
+      f'{windows_release_major},{release_minor},{release_patch},0')
+  mozkey_version_string = (
+      f'{windows_release_major}.{release_minor}.{release_patch}.0')
+  mozkey_product_version_string = (
+      f'v{release_major}.{release_minor}.{release_patch}')
+
   resource_data = open(options.main, encoding='utf-8').read()
   template_data = open(options.template, encoding='utf-8').read()
 
@@ -104,8 +125,18 @@ def main():
       '#define MOZC_RES_VERSION_STRING "@MAJOR@.@MINOR@.@BUILD@.@REVISION@"\n'
       '#define MOZC_RES_SPECIFIC_VERSION_STRING '
       '"@MAJOR@.@MINOR@.@BUILD@.@REVISION@%s"\n'
+      '#define MOZKEY_RES_VERSION_NUMBER %s\n'
+      '#define MOZKEY_RES_VERSION_STRING "%s"\n'
+      '#define MOZKEY_RES_PRODUCT_VERSION_STRING "%s"\n'
       '%s\n'
-      '%s\n') % (build_details, resource_data, template_data)
+      '%s\n') % (
+          build_details,
+          mozkey_version_number,
+          mozkey_version_string,
+          mozkey_product_version_string,
+          resource_data,
+          template_data,
+      )
 
   version_definition = version.GetVersionInFormat(bootstrapper_template)
 
