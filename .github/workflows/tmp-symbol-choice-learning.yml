@@ -1,0 +1,92 @@
+name: Temporary symbol choice learning validation
+
+on:
+  push:
+    branches:
+      - feature/symbol-choice-learning
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: feature/symbol-choice-learning
+
+      - name: Add symbol-learning regression test
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/rewriter/user_segment_history_rewriter_test.cc")
+          text = path.read_text(encoding="utf-8")
+          test = r'''
+
+TEST_F(UserSegmentHistoryRewriterTest, LearnsSlashForMiddleDotSymbolKey) {
+  Segments segments;
+  std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
+      CreateUserSegmentHistoryRewriter());
+  rewriter->Clear();
+
+  const ConversionRequest convreq = CreateConversionRequest();
+  auto init_symbol_candidates = [&]() {
+    segments.Clear();
+    Segment* segment = segments.add_segment();
+    segment->set_key("・");
+
+    converter::Candidate* middle_dot = segment->add_candidate();
+    middle_dot->key = "・";
+    middle_dot->content_key = "・";
+    middle_dot->value = "・";
+    middle_dot->content_value = "・";
+    middle_dot->attributes |= converter::Attribute::BEST_CANDIDATE;
+
+    converter::Candidate* slash = segment->add_candidate();
+    slash->key = "・";
+    slash->content_key = "・";
+    slash->value = "/";
+    slash->content_value = "/";
+    slash->category = converter::Candidate::SYMBOL;
+  };
+
+  // Simulate choosing '/' from the candidate window for the '・' key.
+  init_symbol_candidates();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(convreq, segments);
+
+  // The next conversion of the same symbol key should prefer the learned '/'.
+  init_symbol_candidates();
+  EXPECT_TRUE(rewriter->Rewrite(convreq, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "/");
+  EXPECT_TRUE(segments.segment(0).candidate(0).attributes &
+              converter::Attribute::USER_SEGMENT_HISTORY_REWRITER);
+}
+'''
+          marker = "\n}  // namespace mozc\n"
+          if "LearnsSlashForMiddleDotSymbolKey" not in text:
+              if marker not in text:
+                  raise SystemExit("namespace marker not found")
+              text = text.replace(marker, test + marker, 1)
+              path.write_text(text, encoding="utf-8")
+
+      - name: Run targeted history test
+        working-directory: src
+        run: bazelisk test //rewriter:user_segment_history_rewriter_test -c dbg
+
+      - name: Commit regression test and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-symbol-choice-learning.yml
+          git add src/rewriter/user_segment_history_rewriter_test.cc
+          git commit -m "Add symbol choice learning regression test"
+          git push origin HEAD:feature/symbol-choice-learning
