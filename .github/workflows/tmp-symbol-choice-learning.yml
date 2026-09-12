@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   validate:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -20,8 +19,9 @@ jobs:
           ref: feature/symbol-choice-learning
 
       - name: Add symbol-learning regression test
-        shell: python
+        shell: bash
         run: |
+          python3 - <<'PY'
           from pathlib import Path
 
           path = Path("src/rewriter/user_segment_history_rewriter_test.cc")
@@ -77,16 +77,19 @@ TEST_F(UserSegmentHistoryRewriterTest, LearnsSlashForMiddleDotSymbolKey) {
                   raise SystemExit("namespace marker not found")
               text = text.replace(marker, test + marker, 1)
               path.write_text(text, encoding="utf-8")
+          PY
 
       - name: Run targeted history test
         working-directory: src
         run: bazelisk test //rewriter:user_segment_history_rewriter_test -c dbg
 
-      - name: Commit regression test and remove temporary workflow
+      - name: Commit regression test and remove temporary files
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/tmp-symbol-choice-learning.yml
+          git rm -f .github/tmp-symbol-learning-trigger.txt || true
           git add src/rewriter/user_segment_history_rewriter_test.cc
           git commit -m "Add symbol choice learning regression test"
           git push origin HEAD:feature/symbol-choice-learning
