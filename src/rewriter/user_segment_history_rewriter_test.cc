@@ -1910,4 +1910,137 @@ TEST_F(UserSegmentHistoryRewriterTest, Revert) {
 }
 
 }  // namespace
+
+TEST_F(UserSegmentHistoryRewriterTest, LearnsSlashForMiddleDotSymbolKey) {
+  Segments segments;
+  std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
+      CreateUserSegmentHistoryRewriter());
+  rewriter->Clear();
+
+  const ConversionRequest convreq = CreateConversionRequest();
+  auto init_symbol_candidates = [&]() {
+    segments.Clear();
+    Segment* segment = segments.add_segment();
+    segment->set_key("・");
+
+    converter::Candidate* middle_dot = segment->add_candidate();
+    middle_dot->key = "・";
+    middle_dot->content_key = "・";
+    middle_dot->value = "・";
+    middle_dot->content_value = "・";
+    middle_dot->attributes |= converter::Attribute::BEST_CANDIDATE;
+
+    converter::Candidate* slash = segment->add_candidate();
+    slash->key = "・";
+    slash->content_key = "・";
+    slash->value = "/";
+    slash->content_value = "/";
+    slash->category = converter::Candidate::SYMBOL;
+  };
+
+  init_symbol_candidates();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(convreq, segments);
+
+  init_symbol_candidates();
+  EXPECT_TRUE(rewriter->Rewrite(convreq, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "/");
+  EXPECT_TRUE(segments.segment(0).candidate(0).attributes &
+              converter::Attribute::USER_SEGMENT_HISTORY_REWRITER);
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       LearnsRerankedSymbolChoiceFromPredictionCommit) {
+  Segments segments;
+  std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
+      CreateUserSegmentHistoryRewriter());
+  rewriter->Clear();
+
+  const ConversionRequest prediction_request =
+      ConversionRequestBuilder()
+          .SetConfig(*config_)
+          .SetRequest(*request_)
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+
+  auto init_symbol_candidates = [&]() {
+    segments.Clear();
+    Segment* segment = segments.add_segment();
+    segment->set_key("・");
+
+    converter::Candidate* middle_dot = segment->add_candidate();
+    middle_dot->key = "・";
+    middle_dot->content_key = "・";
+    middle_dot->value = "・";
+    middle_dot->content_value = "・";
+    middle_dot->attributes |= converter::Attribute::BEST_CANDIDATE;
+
+    converter::Candidate* slash = segment->add_candidate();
+    slash->key = "・";
+    slash->content_key = "・";
+    slash->value = "/";
+    slash->content_value = "/";
+    slash->category = converter::Candidate::SYMBOL;
+  };
+
+  init_symbol_candidates();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(prediction_request, segments);
+
+  init_symbol_candidates();
+  EXPECT_TRUE(rewriter->Rewrite(prediction_request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "/");
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       DoesNotLearnNonSymbolFromPredictionCommit) {
+  Segments segments;
+  std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
+      CreateUserSegmentHistoryRewriter());
+  rewriter->Clear();
+
+  const ConversionRequest prediction_request =
+      ConversionRequestBuilder()
+          .SetConfig(*config_)
+          .SetRequest(*request_)
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+
+  auto init_candidates = [&]() {
+    segments.Clear();
+    Segment* segment = segments.add_segment();
+    segment->set_key("test");
+
+    converter::Candidate* first = segment->add_candidate();
+    first->key = "test";
+    first->content_key = "test";
+    first->value = "first";
+    first->content_value = "first";
+    first->attributes |= converter::Attribute::BEST_CANDIDATE;
+
+    converter::Candidate* second = segment->add_candidate();
+    second->key = "test";
+    second->content_key = "test";
+    second->value = "second";
+    second->content_value = "second";
+  };
+
+  init_candidates();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(prediction_request, segments);
+
+  init_candidates();
+  rewriter->Rewrite(prediction_request, &segments);
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "first");
+}
+
 }  // namespace mozc

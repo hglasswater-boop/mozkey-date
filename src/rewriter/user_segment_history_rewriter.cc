@@ -838,9 +838,22 @@ Segments UserSegmentHistoryRewriter::MakeLearningSegmentsFromInnerSegments(
 
 void UserSegmentHistoryRewriter::Finish(const ConversionRequest& request,
                                         const Segments& segments) {
-  if (request.request_type() != ConversionRequest::CONVERSION) {
+  const bool is_prediction_or_suggestion =
+      request.request_type() == ConversionRequest::PREDICTION ||
+      request.request_type() == ConversionRequest::SUGGESTION ||
+      request.request_type() == ConversionRequest::PARTIAL_PREDICTION ||
+      request.request_type() == ConversionRequest::PARTIAL_SUGGESTION;
+  if (request.request_type() != ConversionRequest::CONVERSION &&
+      !is_prediction_or_suggestion) {
     return;
   }
+
+  // Prediction/suggestion commits are normally learned by the predictor,
+  // not by UserSegmentHistoryRewriter. A user-selected symbol is a special
+  // case because symbol ordering is produced by rewriters. Remember only
+  // an explicit reranked symbol choice from these request types.
+  const bool learn_reranked_symbol_choice_only =
+      request.request_type() != ConversionRequest::CONVERSION;
 
   if (!IsAvailable(request, segments)) {
     return;
@@ -852,7 +865,7 @@ void UserSegmentHistoryRewriter::Finish(const ConversionRequest& request,
   }
 
   const Segments target_segments =
-      UseInnerSegments(request)
+      UseInnerSegments(request) && !learn_reranked_symbol_choice_only
           ? MakeLearningSegmentsFromInnerSegments(request, segments)
           : segments;
   std::vector<RevertEntry> revert_entries;
@@ -864,6 +877,13 @@ void UserSegmentHistoryRewriter::Finish(const ConversionRequest& request,
         segment.segment_type() != Segment::FIXED_VALUE ||
         segment.candidate(0).attributes &
             converter::Attribute::NO_HISTORY_LEARNING) {
+      continue;
+    }
+
+    if (learn_reranked_symbol_choice_only &&
+        (!(segment.candidate(0).attributes &
+           converter::Attribute::RERANKED) ||
+         segment.candidate(0).category != converter::Candidate::SYMBOL)) {
       continue;
     }
     const size_t value_begin = committed_value.size();

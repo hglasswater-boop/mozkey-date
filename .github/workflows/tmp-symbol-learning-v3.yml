@@ -1,0 +1,173 @@
+name: Temporary symbol semantic and width learning validation
+
+on:
+  push:
+    branches:
+      - feature/symbol-choice-learning
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: feature/symbol-choice-learning
+
+      - name: Apply width-learning fix and adjust tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          # Live prediction/suggestion commits need the width choice as well as
+          # semantic symbol history. Restrict the exception to an explicitly
+          # reranked SYMBOL candidate.
+          path = Path("src/rewriter/variants_rewriter.cc")
+          text = path.read_text(encoding="utf-8")
+          old = '''  if (!request.request().mixed_conversion() &&
+      request.request_type() != ConversionRequest::CONVERSION) {
+    return;
+  }
+
+  // save character form
+  for (const Segment& segment : segments.conversion_segments()) {
+'''
+          new = '''  const bool learn_reranked_symbol_choice_only =
+      !request.request().mixed_conversion() &&
+      request.request_type() != ConversionRequest::CONVERSION;
+  const bool is_prediction_or_suggestion =
+      request.request_type() == ConversionRequest::PREDICTION ||
+      request.request_type() == ConversionRequest::SUGGESTION ||
+      request.request_type() == ConversionRequest::PARTIAL_PREDICTION ||
+      request.request_type() == ConversionRequest::PARTIAL_SUGGESTION;
+  if (learn_reranked_symbol_choice_only && !is_prediction_or_suggestion) {
+    return;
+  }
+
+  // save character form
+  for (const Segment& segment : segments.conversion_segments()) {
+'''
+          if old not in text:
+              raise SystemExit("variants Finish prologue not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    const Candidate& candidate = segment.candidate(0);
+    if (candidate.attributes & Attribute::NO_VARIANTS_EXPANSION) {
+      continue;
+    }
+'''
+          new = '''    const Candidate& candidate = segment.candidate(0);
+    if (learn_reranked_symbol_choice_only &&
+        (!(candidate.attributes & Attribute::RERANKED) ||
+         candidate.category != Candidate::SYMBOL)) {
+      continue;
+    }
+    if (candidate.attributes & Attribute::NO_VARIANTS_EXPANSION) {
+      continue;
+    }
+'''
+          if old not in text:
+              raise SystemExit("variants candidate block not found")
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+
+          # User history tests isolate semantic ranking. Character-width
+          # learning is covered separately in variants_rewriter_test.
+          path = Path("src/rewriter/user_segment_history_rewriter_test.cc")
+          text = path.read_text(encoding="utf-8")
+          needle = '''    slash->category = converter::Candidate::SYMBOL;
+'''
+          replacement = '''    slash->category = converter::Candidate::SYMBOL;
+    slash->attributes |= converter::Attribute::NO_VARIANTS_EXPANSION;
+'''
+          count = text.count(needle)
+          if count != 2:
+              raise SystemExit(f"expected two slash candidates, found {count}")
+          text = text.replace(needle, replacement)
+          path.write_text(text, encoding="utf-8")
+
+          # Add focused width-learning coverage for live prediction commits.
+          path = Path("src/rewriter/variants_rewriter_test.cc")
+          text = path.read_text(encoding="utf-8")
+          tests = textwrap.dedent(r'''
+
+          TEST_F(VariantsRewriterTest, FinishLearnsRerankedSymbolWidthFromPrediction) {
+            std::unique_ptr<VariantsRewriter> rewriter(CreateVariantsRewriter());
+            auto* manager = CharacterFormManager::GetCharacterFormManager();
+            manager->SetCharacterForm("/", Config::FULL_WIDTH);
+            ASSERT_EQ(manager->GetConversionCharacterForm("/"), Config::FULL_WIDTH);
+
+            const ConversionRequest request =
+                ConversionRequestBuilder()
+                    .SetRequestType(ConversionRequest::PREDICTION)
+                    .Build();
+            Segments segments;
+            Segment* segment = segments.push_back_segment();
+            segment->set_key("・");
+            segment->set_segment_type(Segment::FIXED_VALUE);
+            converter::Candidate* cand = segment->add_candidate();
+            cand->key = "・";
+            cand->content_key = "・";
+            cand->value = "/";
+            cand->content_value = "/";
+            cand->category = converter::Candidate::SYMBOL;
+            cand->attributes |= converter::Attribute::RERANKED;
+
+            rewriter->Finish(request, segments);
+            EXPECT_EQ(manager->GetConversionCharacterForm("/"), Config::HALF_WIDTH);
+          }
+
+          TEST_F(VariantsRewriterTest, FinishDoesNotLearnNonSymbolWidthFromPrediction) {
+            std::unique_ptr<VariantsRewriter> rewriter(CreateVariantsRewriter());
+            auto* manager = CharacterFormManager::GetCharacterFormManager();
+            manager->SetCharacterForm("/", Config::FULL_WIDTH);
+            ASSERT_EQ(manager->GetConversionCharacterForm("/"), Config::FULL_WIDTH);
+
+            const ConversionRequest request =
+                ConversionRequestBuilder()
+                    .SetRequestType(ConversionRequest::PREDICTION)
+                    .Build();
+            Segments segments;
+            Segment* segment = segments.push_back_segment();
+            segment->set_key("・");
+            segment->set_segment_type(Segment::FIXED_VALUE);
+            converter::Candidate* cand = segment->add_candidate();
+            cand->key = "・";
+            cand->content_key = "・";
+            cand->value = "/";
+            cand->content_value = "/";
+            cand->attributes |= converter::Attribute::RERANKED;
+
+            rewriter->Finish(request, segments);
+            EXPECT_EQ(manager->GetConversionCharacterForm("/"), Config::FULL_WIDTH);
+          }
+          ''')
+          marker = "\n}  // namespace\n}  // namespace mozc\n"
+          if "FinishLearnsRerankedSymbolWidthFromPrediction" not in text:
+              if marker not in text:
+                  raise SystemExit("variants namespace marker not found")
+              text = text.replace(marker, tests + marker, 1)
+              path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Run focused learning tests
+        working-directory: src
+        run: |
+          bazelisk test //rewriter:user_segment_history_rewriter_test //rewriter:variants_rewriter_test -c dbg --test_output=errors
+
+      - name: Commit validated implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-symbol-learning-v3.yml
+          git add src/rewriter/user_segment_history_rewriter_test.cc src/rewriter/variants_rewriter.cc src/rewriter/variants_rewriter_test.cc
+          git commit -m "Learn symbol width choices from live conversion"
+          git push origin HEAD:feature/symbol-choice-learning
