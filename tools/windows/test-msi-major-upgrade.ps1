@@ -141,14 +141,44 @@ if ($candidateVersion -le $previousVersion) {
 
 Add-Type -TypeDefinition @'
 using System.Runtime.InteropServices;
+using System.Text;
 public static class MozkeyDateMsiNative {
   [DllImport("msi.dll", CharSet = CharSet.Unicode)]
   public static extern int MsiQueryProductState(string product);
+
+  [DllImport("msi.dll", CharSet = CharSet.Unicode, EntryPoint = "MsiEnumRelatedProductsW")]
+  public static extern uint MsiEnumRelatedProducts(
+      string upgradeCode,
+      uint reserved,
+      uint productIndex,
+      StringBuilder productCode);
 }
 '@
 
 function Get-MsiProductState([string]$ProductCode) {
   return [MozkeyDateMsiNative]::MsiQueryProductState($ProductCode)
+}
+
+function Get-RelatedProducts([string]$UpgradeCode) {
+  $products = @()
+  for ($index = 0; ; $index++) {
+    # ProductCode is a GUID in braces (38 chars) plus the terminating NUL.
+    $buffer = New-Object System.Text.StringBuilder 39
+    $result = [MozkeyDateMsiNative]::MsiEnumRelatedProducts(
+      $UpgradeCode,
+      0,
+      [uint32]$index,
+      $buffer
+    )
+    if ($result -eq 259) { # ERROR_NO_MORE_ITEMS
+      break
+    }
+    if ($result -ne 0) {
+      throw "MsiEnumRelatedProducts failed for UpgradeCode $UpgradeCode at index $index with error $result."
+    }
+    $products += $buffer.ToString()
+  }
+  return @($products)
 }
 
 Write-Host "Previous MSI:  ProductVersion=$previousVersion ProductCode=$previousProductCode"
@@ -165,6 +195,11 @@ try {
     throw "Previous product was not registered as installed after installation."
   }
 
+  $relatedBefore = @(Get-RelatedProducts $candidateUpgradeCode)
+  if ($relatedBefore -notcontains $previousProductCode) {
+    throw "Installed previous ProductCode was not discoverable through UpgradeCode $candidateUpgradeCode. Related products: $($relatedBefore -join ', ')"
+  }
+
   Write-Host "Upgrading with candidate MSI..."
   Invoke-MsiInstall $CandidateMsi $candidateLog
 
@@ -177,7 +212,16 @@ try {
     throw "Previous product is still installed after the upgrade. Major upgrade replacement failed."
   }
 
-  Write-Host "Major upgrade verified: old ProductCode was removed and candidate ProductCode is installed."
+  $relatedAfter = @(Get-RelatedProducts $candidateUpgradeCode)
+  $unexpectedRelated = @($relatedAfter | Where-Object { $_ -ne $candidateProductCode })
+  if ($relatedAfter -notcontains $candidateProductCode) {
+    throw "Candidate ProductCode is not discoverable through UpgradeCode $candidateUpgradeCode after upgrade. Related products: $($relatedAfter -join ', ')"
+  }
+  if ($unexpectedRelated.Count -ne 0) {
+    throw "Stale Mozkey products remain registered after the upgrade: $($unexpectedRelated -join ', ')"
+  }
+
+  Write-Host "Major upgrade verified: candidate is the only product registered for UpgradeCode $candidateUpgradeCode."
 }
 finally {
   if ((Get-MsiProductState $candidateProductCode) -eq 5) {
