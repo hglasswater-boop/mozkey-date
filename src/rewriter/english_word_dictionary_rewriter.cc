@@ -437,11 +437,21 @@ bool AddSpellingCandidates(absl::string_view raw_input,
   return inserted > 0;
 }
 
+bool IsPredictionRequest(RequestType request_type) {
+  return request_type == PREDICTION || request_type == SUGGESTION ||
+         request_type == PARTIAL_PREDICTION ||
+         request_type == PARTIAL_SUGGESTION;
+}
+
 }  // namespace
 
 int EnglishWordDictionaryRewriter::capability(
-    const ConversionRequest&) const {
-  return RewriterInterface::ALL;
+    const ConversionRequest& request) const {
+  int capability = RewriterInterface::PREDICTION | RewriterInterface::SUGGESTION;
+  if (request.config().use_english_spelling_correction()) {
+    capability |= RewriterInterface::CONVERSION;
+  }
+  return capability;
 }
 
 bool EnglishWordDictionaryRewriter::Rewrite(const ConversionRequest& request,
@@ -458,7 +468,9 @@ bool EnglishWordDictionaryRewriter::Rewrite(const ConversionRequest& request,
     }
     const std::string lower_input = LowerAscii(raw_input);
 
-    modified |= AddPrefixCandidates(raw_input, lower_input, &segment);
+    if (IsPredictionRequest(request.request_type())) {
+      modified |= AddPrefixCandidates(raw_input, lower_input, &segment);
+    }
 
     if (request.request_type() == ConversionRequest::CONVERSION &&
         request.config().use_english_spelling_correction()) {
