@@ -563,6 +563,9 @@ ConfigDialog::ConfigDialog()
   historyLearningLevelComboBox->addItem(tr("Yes"));
   historyLearningLevelComboBox->addItem(tr("Yes (don't record new data)"));
   historyLearningLevelComboBox->addItem(tr("No"));
+  QObject::connect(symbolChoiceLearningCheckBox, &QCheckBox::toggled,
+                   punctuationChoiceLearningCheckBox,
+                   &QWidget::setEnabled);
 
   shiftKeyModeSwitchComboBox->addItem(tr("Off"));
   shiftKeyModeSwitchComboBox->addItem(tr("Alphanumeric"));
@@ -3077,6 +3080,11 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
   // tab2
   SET_COMBOBOX(historyLearningLevelComboBox, HistoryLearningLevel,
                history_learning_level);
+  SET_CHECKBOX(symbolChoiceLearningCheckBox, use_symbol_choice_learning);
+  SET_CHECKBOX(punctuationChoiceLearningCheckBox,
+               use_punctuation_choice_learning);
+  punctuationChoiceLearningCheckBox->setEnabled(
+      symbolChoiceLearningCheckBox->isChecked());
   SET_CHECKBOX(singleKanjiConversionCheckBox, use_single_kanji_conversion);
   SET_CHECKBOX(symbolConversionCheckBox, use_symbol_conversion);
   SET_CHECKBOX(emoticonConversionCheckBox, use_emoticon_conversion);
@@ -3357,6 +3365,9 @@ void ConfigDialog::ConvertToProto(config::Config *config) const {
   // tab2
   GET_COMBOBOX(historyLearningLevelComboBox, HistoryLearningLevel,
                history_learning_level);
+  GET_CHECKBOX(symbolChoiceLearningCheckBox, use_symbol_choice_learning);
+  GET_CHECKBOX(punctuationChoiceLearningCheckBox,
+               use_punctuation_choice_learning);
   GET_CHECKBOX(singleKanjiConversionCheckBox, use_single_kanji_conversion);
   GET_CHECKBOX(symbolConversionCheckBox, use_symbol_conversion);
   GET_CHECKBOX(emoticonConversionCheckBox, use_emoticon_conversion);

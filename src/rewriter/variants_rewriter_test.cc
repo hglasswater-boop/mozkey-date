@@ -1060,5 +1060,168 @@ TEST_F(VariantsRewriterTest, Finish) {
   EXPECT_EQ(manager->GetConversionCharacterForm("0"), Config::FULL_WIDTH);
 }
 
+TEST_F(VariantsRewriterTest, LearnExplicitSymbolWidthFromDesktopPrediction) {
+  std::unique_ptr<VariantsRewriter> rewriter(CreateVariantsRewriter());
+  auto* manager = CharacterFormManager::GetCharacterFormManager();
+  for (const auto type :
+       {ConversionRequest::PREDICTION, ConversionRequest::SUGGESTION,
+        ConversionRequest::PARTIAL_PREDICTION,
+        ConversionRequest::PARTIAL_SUGGESTION}) {
+    SCOPED_TRACE(static_cast<int>(type));
+    Reset();
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetOptions({.request_type = type}).Build();
+    Segments segments;
+    auto* segment = segments.add_segment();
+    segment->set_key("・");
+    segment->set_segment_type(Segment::FIXED_VALUE);
+    auto* candidate = segment->add_candidate();
+    candidate->key = candidate->content_key = "・";
+    candidate->category = converter::Candidate::SYMBOL;
+    candidate->attributes |= converter::Attribute::RERANKED;
+    for (const char* value : {"/", "／", "/"}) {
+      candidate->value = candidate->content_value = value;
+      rewriter->Finish(request, segments);
+      EXPECT_EQ(manager->ConvertConversionString("/"), value);
+    }
+  }
+}
+
+TEST_F(VariantsRewriterTest, DesktopSymbolWidthLearningGuards) {
+  std::unique_ptr<VariantsRewriter> rewriter(CreateVariantsRewriter());
+  auto* manager = CharacterFormManager::GetCharacterFormManager();
+  // Each case must leave the previous full-width preference untouched.
+  for (int guard = 0; guard < 10; ++guard) {
+    SCOPED_TRACE(guard);
+    Reset();
+    Config config;
+    Request client_request;
+    Segments segments;
+    auto* segment = segments.add_segment();
+    segment->set_key("・");
+    segment->set_segment_type(Segment::FIXED_VALUE);
+    auto* candidate = segment->add_candidate();
+    candidate->key = candidate->content_key = "・";
+    candidate->value = candidate->content_value = "/";
+    candidate->category = converter::Candidate::SYMBOL;
+    candidate->attributes |= converter::Attribute::RERANKED;
+    switch (guard) {
+      case 0:  // Unselected default candidate.
+        candidate->attributes = 0;
+        break;
+      case 1:  // Ordinary prediction must not learn character forms.
+        candidate->category = converter::Candidate().category;
+        break;
+      case 2:
+        candidate->attributes |= converter::Attribute::NO_HISTORY_LEARNING;
+        break;
+      case 3:
+        candidate->attributes |= converter::Attribute::NO_VARIANTS_EXPANSION;
+        break;
+      case 4:
+        segment->set_segment_type(Segment::FREE);
+        break;
+      case 5:
+        config.set_incognito_mode(true);
+        break;
+      case 6:
+        config.set_history_learning_level(Config::NO_HISTORY);
+        break;
+      case 7:
+        config.set_history_learning_level(Config::READ_ONLY);
+        break;
+      case 8:
+        client_request.set_is_incognito_mode(true);
+        break;
+      case 9:
+        segment->clear_candidates();
+        break;
+    }
+    const ConversionRequest request =
+        ConversionRequestBuilder()
+            .SetConfig(config)
+            .SetRequest(client_request)
+            .SetOptions({.request_type = ConversionRequest::PREDICTION})
+            .Build();
+    rewriter->Finish(request, segments);
+    EXPECT_EQ(manager->GetConversionCharacterForm("/"), Config::FULL_WIDTH);
+  }
+}
+
+TEST_F(VariantsRewriterTest, ExplicitCharacterFormRuleStillWins) {
+  std::unique_ptr<VariantsRewriter> rewriter(CreateVariantsRewriter());
+  auto* manager = CharacterFormManager::GetCharacterFormManager();
+  manager->AddConversionRule("/", Config::FULL_WIDTH);
+  const ConversionRequest request =
+      ConversionRequestBuilder()
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+  Segments segments;
+  auto* segment = segments.add_segment();
+  segment->set_key("・");
+  segment->set_segment_type(Segment::FIXED_VALUE);
+  auto* candidate = segment->add_candidate();
+  candidate->value = candidate->content_value = "/";
+  candidate->category = converter::Candidate::SYMBOL;
+  candidate->attributes |= converter::Attribute::RERANKED;
+  rewriter->Finish(request, segments);
+  EXPECT_EQ(manager->GetConversionCharacterForm("/"), Config::FULL_WIDTH);
+}
+
+TEST_F(VariantsRewriterTest,
+       DesktopSymbolWidthLearningRejectsAlphanumericSourceKeys) {
+  auto rewriter = std::unique_ptr<VariantsRewriter>(CreateVariantsRewriter());
+  auto* manager = CharacterFormManager::GetCharacterFormManager();
+  for (const auto& key_and_value :
+       std::vector<std::pair<std::string, std::string>>{{"1", "１"},
+                                                        {"a", "Ａ"}}) {
+    const std::string& key = key_and_value.first;
+    const std::string& selected = key_and_value.second;
+    SCOPED_TRACE(key);
+    Reset();
+    manager->SetCharacterForm(key, Config::HALF_WIDTH);
+    const ConversionRequest request =
+        ConversionRequestBuilder()
+            .SetOptions({.request_type = ConversionRequest::PREDICTION})
+            .Build();
+    Segments segments;
+    auto* segment = segments.add_segment();
+    segment->set_key(key);
+    segment->set_segment_type(Segment::FIXED_VALUE);
+    auto* candidate = segment->add_candidate();
+    candidate->key = candidate->content_key = key;
+    candidate->value = candidate->content_value = selected;
+    candidate->category = converter::Candidate::SYMBOL;
+    candidate->attributes |= converter::Attribute::RERANKED;
+    rewriter->Finish(request, segments);
+    EXPECT_EQ(manager->GetConversionCharacterForm(key), Config::HALF_WIDTH);
+  }
+}
+
+TEST_F(VariantsRewriterTest, DesktopSymbolWidthLearningRespectsMasterSetting) {
+  Reset();
+  auto rewriter = std::unique_ptr<VariantsRewriter>(CreateVariantsRewriter());
+  auto* manager = CharacterFormManager::GetCharacterFormManager();
+  manager->SetCharacterForm("/", Config::FULL_WIDTH);
+  Config config;
+  config.set_use_symbol_choice_learning(false);
+  const ConversionRequest request =
+      ConversionRequestBuilder()
+          .SetConfig(config)
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+  Segments segments;
+  auto* segment = segments.add_segment();
+  segment->set_key("・");
+  segment->set_segment_type(Segment::FIXED_VALUE);
+  auto* candidate = segment->add_candidate();
+  candidate->key = candidate->content_key = "・";
+  candidate->value = candidate->content_value = "/";
+  candidate->category = converter::Candidate::SYMBOL;
+  candidate->attributes |= converter::Attribute::RERANKED;
+  rewriter->Finish(request, segments);
+  EXPECT_EQ(manager->GetConversionCharacterForm("/"), Config::FULL_WIDTH);
+}
+
 }  // namespace
 }  // namespace mozc

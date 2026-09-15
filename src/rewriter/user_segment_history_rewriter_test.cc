@@ -58,7 +58,9 @@
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
 #include "request/request_test_util.h"
+#include "rewriter/merger_rewriter.h"
 #include "rewriter/number_rewriter.h"
+#include "rewriter/symbol_rewriter.h"
 #include "rewriter/variants_rewriter.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
@@ -147,12 +149,14 @@ class UserSegmentHistoryRewriterTest : public testing::TestWithTempUserProfile {
       }
     }
     CharacterFormManager::GetCharacterFormManager()->ReloadConfig(*config_);
+    CharacterFormManager::GetCharacterFormManager()->ClearHistory();
 
     Clock::SetClockForUnitTest(nullptr);
   }
 
   void TearDown() override {
     CharacterFormManager::GetCharacterFormManager()->SetDefaultRule();
+    CharacterFormManager::GetCharacterFormManager()->ClearHistory();
     std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
         CreateUserSegmentHistoryRewriter());
     rewriter->Clear();
@@ -164,6 +168,11 @@ class UserSegmentHistoryRewriterTest : public testing::TestWithTempUserProfile {
   std::unique_ptr<NumberRewriter> CreateNumberRewriter() const {
     return make_unique_from_tuples<NumberRewriter>(
         mock_data_manager_.GetCounterSuffixSortedArray(), pos_matcher_);
+  }
+
+  std::unique_ptr<SymbolRewriter> CreateSymbolRewriter() const {
+    return make_unique_from_tuples<SymbolRewriter>(
+        mock_data_manager_.GetSymbolRewriterData());
   }
 
   std::unique_ptr<UserSegmentHistoryRewriter> CreateUserSegmentHistoryRewriter()
@@ -1907,6 +1916,439 @@ TEST_F(UserSegmentHistoryRewriterTest, Revert) {
     const ConversionRequest convreq = CreateConversionRequest();
     EXPECT_FALSE(rewriter->Rewrite(convreq, &segments));
   }
+}
+
+TEST_F(UserSegmentHistoryRewriterTest, LearnsSlashForMiddleDotSymbolKey) {
+  Segments segments;
+  std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
+      CreateUserSegmentHistoryRewriter());
+  rewriter->Clear();
+
+  const ConversionRequest convreq = CreateConversionRequest();
+  auto init_symbol_candidates = [&]() {
+    segments.Clear();
+    Segment* segment = segments.add_segment();
+    segment->set_key("・");
+
+    converter::Candidate* middle_dot = segment->add_candidate();
+    middle_dot->key = "・";
+    middle_dot->content_key = "・";
+    middle_dot->value = "・";
+    middle_dot->content_value = "・";
+    middle_dot->attributes |= converter::Attribute::BEST_CANDIDATE;
+
+    converter::Candidate* slash = segment->add_candidate();
+    slash->key = "・";
+    slash->content_key = "・";
+    slash->value = "/";
+    slash->content_value = "/";
+    slash->category = converter::Candidate::SYMBOL;
+  };
+
+  init_symbol_candidates();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  // Match the production order: learn width before candidate ranking.
+  VariantsRewriter(pos_matcher()).Finish(convreq, segments);
+  rewriter->Finish(convreq, segments);
+
+  init_symbol_candidates();
+  EXPECT_TRUE(rewriter->Rewrite(convreq, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "/");
+  EXPECT_TRUE(segments.segment(0).candidate(0).attributes &
+              converter::Attribute::USER_SEGMENT_HISTORY_REWRITER);
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       LearnsRerankedSymbolChoiceFromPredictionCommit) {
+  Segments segments;
+  std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
+      CreateUserSegmentHistoryRewriter());
+  rewriter->Clear();
+
+  const ConversionRequest prediction_request =
+      ConversionRequestBuilder()
+          .SetConfig(*config_)
+          .SetRequest(*request_)
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+
+  auto init_symbol_candidates = [&]() {
+    segments.Clear();
+    Segment* segment = segments.add_segment();
+    segment->set_key("・");
+
+    converter::Candidate* middle_dot = segment->add_candidate();
+    middle_dot->key = "・";
+    middle_dot->content_key = "・";
+    middle_dot->value = "・";
+    middle_dot->content_value = "・";
+    middle_dot->attributes |= converter::Attribute::BEST_CANDIDATE;
+
+    converter::Candidate* slash = segment->add_candidate();
+    slash->key = "・";
+    slash->content_key = "・";
+    slash->value = "/";
+    slash->content_value = "/";
+    slash->category = converter::Candidate::SYMBOL;
+  };
+
+  init_symbol_candidates();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  VariantsRewriter(pos_matcher()).Finish(prediction_request, segments);
+  rewriter->Finish(prediction_request, segments);
+
+  init_symbol_candidates();
+  EXPECT_TRUE(rewriter->Rewrite(prediction_request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "/");
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       DoesNotLearnNonSymbolFromPredictionCommit) {
+  Segments segments;
+  std::unique_ptr<UserSegmentHistoryRewriter> rewriter(
+      CreateUserSegmentHistoryRewriter());
+  rewriter->Clear();
+
+  const ConversionRequest prediction_request =
+      ConversionRequestBuilder()
+          .SetConfig(*config_)
+          .SetRequest(*request_)
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+
+  auto init_candidates = [&]() {
+    segments.Clear();
+    Segment* segment = segments.add_segment();
+    segment->set_key("test");
+
+    converter::Candidate* first = segment->add_candidate();
+    first->key = "test";
+    first->content_key = "test";
+    first->value = "first";
+    first->content_value = "first";
+    first->attributes |= converter::Attribute::BEST_CANDIDATE;
+
+    converter::Candidate* second = segment->add_candidate();
+    second->key = "test";
+    second->content_key = "test";
+    second->value = "second";
+    second->content_value = "second";
+  };
+
+  init_candidates();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(prediction_request, segments);
+
+  init_candidates();
+  rewriter->Rewrite(prediction_request, &segments);
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "first");
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       SymbolChoiceAndWidthSurviveReloadThroughRewriterDispatch) {
+  auto* manager = CharacterFormManager::GetCharacterFormManager();
+  for (const auto type :
+       {ConversionRequest::CONVERSION, ConversionRequest::PREDICTION,
+        ConversionRequest::SUGGESTION, ConversionRequest::PARTIAL_PREDICTION,
+        ConversionRequest::PARTIAL_SUGGESTION}) {
+    SCOPED_TRACE(static_cast<int>(type));
+    const ConversionRequest request = ConversionRequestBuilder()
+                                          .SetConfig(*config_)
+                                          .SetRequest(*request_)
+                                          .SetOptions({.request_type = type})
+                                          .Build();
+    for (const bool half_width : {true, false}) {
+      SCOPED_TRACE(half_width);
+      manager->ClearHistory();
+      manager->SetCharacterForm(
+          "/", half_width ? Config::FULL_WIDTH : Config::HALF_WIDTH);
+      const std::string selected = half_width ? "/" : "／";
+      auto make_rewriter = [&]() {
+        auto rewriter = std::make_unique<MergerRewriter>();
+        rewriter->AddRewriter(
+            std::make_unique<VariantsRewriter>(pos_matcher()));
+        rewriter->AddRewriter(CreateUserSegmentHistoryRewriter());
+        return rewriter;
+      };
+      auto init_candidates = [](Segments* segments) {
+        segments->Clear();
+        Segment* segment = segments->add_segment();
+        segment->set_key("・");
+        for (const char* value : {"・", "/", "／"}) {
+          auto* candidate = segment->add_candidate();
+          candidate->key = candidate->content_key = "・";
+          candidate->value = candidate->content_value = value;
+          candidate->category = converter::Candidate::SYMBOL;
+        }
+        segment->mutable_candidate(0)->attributes |=
+            converter::Attribute::BEST_CANDIDATE;
+      };
+      CreateUserSegmentHistoryRewriter()->Clear();
+      auto rewriter = make_rewriter();
+      Segments segments;
+      init_candidates(&segments);
+      Segment* segment = segments.mutable_segment(0);
+      segment->move_candidate(half_width ? 1 : 2, 0);
+      segment->mutable_candidate(0)->attributes |=
+          converter::Attribute::RERANKED;
+      segment->set_segment_type(Segment::FIXED_VALUE);
+      rewriter->Finish(request, segments);
+      EXPECT_EQ(manager->GetConversionCharacterForm("/"),
+                half_width ? Config::HALF_WIDTH : Config::FULL_WIDTH);
+
+      // Recreate the ranking rewriter to read its persisted history. Exercise
+      // dispatch, not just a direct call that bypasses capability filtering.
+      rewriter.reset();
+      rewriter = make_rewriter();
+      for (const auto next_type :
+           {ConversionRequest::CONVERSION, ConversionRequest::PREDICTION,
+            ConversionRequest::SUGGESTION}) {
+        SCOPED_TRACE(static_cast<int>(next_type));
+        const ConversionRequest next_request =
+            ConversionRequestBuilder()
+                .SetConfig(*config_)
+                .SetRequest(*request_)
+                .SetOptions({.request_type = next_type})
+                .Build();
+        init_candidates(&segments);
+        EXPECT_TRUE(rewriter->Rewrite(next_request, &segments));
+        EXPECT_EQ(segments.segment(0).candidate(0).value, selected);
+        EXPECT_TRUE(segments.segment(0).candidate(0).attributes &
+                    converter::Attribute::USER_SEGMENT_HISTORY_REWRITER);
+        EXPECT_TRUE(segments.segment(0).candidate(0).attributes &
+                    converter::Attribute::BEST_CANDIDATE);
+      }
+    }
+  }
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       PredictionDoesNotPromoteOrdinaryConversionHistory) {
+  auto rewriter = CreateUserSegmentHistoryRewriter();
+  Segments segments;
+  InitSegments(&segments, 1, 2);
+  auto* segment = segments.mutable_segment(0);
+  segment->move_candidate(1, 0);
+  segment->mutable_candidate(0)->attributes |= converter::Attribute::RERANKED;
+  segment->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(CreateConversionRequest(), segments);
+
+  for (const auto type :
+       {ConversionRequest::PREDICTION, ConversionRequest::SUGGESTION,
+        ConversionRequest::PARTIAL_PREDICTION,
+        ConversionRequest::PARTIAL_SUGGESTION}) {
+    SCOPED_TRACE(static_cast<int>(type));
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetOptions({.request_type = type}).Build();
+    InitSegments(&segments, 1, 2);
+    EXPECT_FALSE(rewriter->Rewrite(request, &segments));
+    EXPECT_EQ(segments.segment(0).candidate(0).value, "candidate0");
+    EXPECT_EQ(segments.segment(0).candidate(1).value, "candidate1");
+  }
+}
+
+TEST_F(UserSegmentHistoryRewriterTest, LearnsGeneratedSlashOnNextConversion) {
+  MergerRewriter rewriter;
+  rewriter.AddRewriter(CreateSymbolRewriter());
+  rewriter.AddRewriter(std::make_unique<VariantsRewriter>(pos_matcher()));
+  rewriter.AddRewriter(CreateUserSegmentHistoryRewriter());
+  rewriter.Clear();
+  const ConversionRequest request = CreateConversionRequest();
+  Segments segments;
+  auto input_middle_dot = [&]() {
+    segments.Clear();
+    auto* segment = segments.add_segment();
+    segment->set_key("・");
+    auto* candidate = segment->add_candidate();
+    candidate->key = candidate->content_key = "・";
+    candidate->value = candidate->content_value = "・";
+  };
+  input_middle_dot();
+  ASSERT_TRUE(rewriter.Rewrite(request, &segments));
+  auto* segment = segments.mutable_segment(0);
+  int slash_index = -1;
+  for (size_t i = 0; i < segment->candidates_size(); ++i) {
+    if (segment->candidate(i).value == "/") {
+      slash_index = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_GE(slash_index, 0);
+  ASSERT_EQ(segment->candidate(slash_index).category,
+            converter::Candidate::SYMBOL);
+  segment->move_candidate(slash_index, 0);
+  segment->mutable_candidate(0)->attributes |= converter::Attribute::RERANKED;
+  segment->set_segment_type(Segment::FIXED_VALUE);
+  rewriter.Finish(request, segments);
+
+  input_middle_dot();
+  ASSERT_TRUE(rewriter.Rewrite(request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "/");
+  EXPECT_TRUE(segments.segment(0).candidate(0).attributes &
+              converter::Attribute::BEST_CANDIDATE);
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       PredictionSymbolLearningRejectsAlphanumericSourceKeys) {
+  for (const auto& key_and_value :
+       std::vector<std::pair<std::string, std::string>>{{"1", "１"},
+                                                        {"a", "＠"}}) {
+    const std::string& key = key_and_value.first;
+    const std::string& selected = key_and_value.second;
+    SCOPED_TRACE(key);
+    auto rewriter = CreateUserSegmentHistoryRewriter();
+    rewriter->Clear();
+    const ConversionRequest request =
+        ConversionRequestBuilder()
+            .SetConfig(*config_)
+            .SetRequest(*request_)
+            .SetOptions({.request_type = ConversionRequest::PREDICTION})
+            .Build();
+    auto init = [&](Segments* segments) {
+      segments->Clear();
+      Segment* segment = segments->add_segment();
+      segment->set_key(key);
+      for (const std::string& value : {key, selected}) {
+        auto* candidate = segment->add_candidate();
+        candidate->key = candidate->content_key = key;
+        candidate->value = candidate->content_value = value;
+        if (value == selected) {
+          candidate->category = converter::Candidate::SYMBOL;
+        }
+      }
+    };
+    Segments segments;
+    init(&segments);
+    segments.mutable_segment(0)->move_candidate(1, 0);
+    segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+        converter::Attribute::RERANKED;
+    segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+    rewriter->Finish(request, segments);
+    init(&segments);
+    rewriter->Rewrite(request, &segments);
+    EXPECT_EQ(segments.segment(0).candidate(0).value, key);
+  }
+}
+
+TEST_F(UserSegmentHistoryRewriterTest,
+       PredictionSymbolLearningRespectsMasterSetting) {
+  Config config = *config_;
+  config.set_use_symbol_choice_learning(false);
+  const ConversionRequest request =
+      ConversionRequestBuilder()
+          .SetConfig(config)
+          .SetRequest(*request_)
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+  auto rewriter = CreateUserSegmentHistoryRewriter();
+  rewriter->Clear();
+  Segments segments;
+  auto init = [&]() {
+    segments.Clear();
+    auto* segment = segments.add_segment();
+    segment->set_key("・");
+    for (const char* value : {"・", "/"}) {
+      auto* candidate = segment->add_candidate();
+      candidate->key = candidate->content_key = "・";
+      candidate->value = candidate->content_value = value;
+      candidate->category = converter::Candidate::SYMBOL;
+    }
+  };
+  init();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(request, segments);
+  init();
+  EXPECT_FALSE(rewriter->Rewrite(request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "・");
+}
+
+TEST_F(UserSegmentHistoryRewriterTest, PredictionPunctuationLearningIsOptIn) {
+  for (const bool enabled : {false, true}) {
+    SCOPED_TRACE(enabled);
+    Config config = *config_;
+    config.set_use_symbol_choice_learning(true);
+    config.set_use_punctuation_choice_learning(enabled);
+    const ConversionRequest request =
+        ConversionRequestBuilder()
+            .SetConfig(config)
+            .SetRequest(*request_)
+            .SetOptions({.request_type = ConversionRequest::PREDICTION})
+            .Build();
+    auto rewriter = CreateUserSegmentHistoryRewriter();
+    rewriter->Clear();
+    Segments segments;
+    auto init = [&]() {
+      segments.Clear();
+      auto* segment = segments.add_segment();
+      segment->set_key("。");
+      for (const char* value : {"。", "．"}) {
+        auto* candidate = segment->add_candidate();
+        candidate->key = candidate->content_key = "。";
+        candidate->value = candidate->content_value = value;
+        candidate->category = converter::Candidate::SYMBOL;
+      }
+    };
+    init();
+    segments.mutable_segment(0)->move_candidate(1, 0);
+    segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+        converter::Attribute::RERANKED;
+    segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+    rewriter->Finish(request, segments);
+    init();
+    const bool modified = rewriter->Rewrite(request, &segments);
+    EXPECT_EQ(segments.segment(0).candidate(0).value, enabled ? "．" : "。");
+    if (!enabled) {
+      EXPECT_FALSE(modified);
+    }
+  }
+}
+
+TEST_F(UserSegmentHistoryRewriterTest, PredictionLearnsNonSlashSymbolChoice) {
+  Config config = *config_;
+  config.set_use_symbol_choice_learning(true);
+  const ConversionRequest request =
+      ConversionRequestBuilder()
+          .SetConfig(config)
+          .SetRequest(*request_)
+          .SetOptions({.request_type = ConversionRequest::PREDICTION})
+          .Build();
+  auto rewriter = CreateUserSegmentHistoryRewriter();
+  rewriter->Clear();
+  Segments segments;
+  auto init = [&]() {
+    segments.Clear();
+    auto* segment = segments.add_segment();
+    segment->set_key("[");
+    for (const char* value : {"[", "［"}) {
+      auto* candidate = segment->add_candidate();
+      candidate->key = candidate->content_key = "[";
+      candidate->value = candidate->content_value = value;
+      candidate->category = converter::Candidate::SYMBOL;
+    }
+  };
+
+  init();
+  segments.mutable_segment(0)->move_candidate(1, 0);
+  segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
+      converter::Attribute::RERANKED;
+  segments.mutable_segment(0)->set_segment_type(Segment::FIXED_VALUE);
+  rewriter->Finish(request, segments);
+
+  init();
+  EXPECT_TRUE(rewriter->Rewrite(request, &segments));
+  EXPECT_EQ(segments.segment(0).candidate(0).value, "［");
 }
 
 }  // namespace

@@ -56,6 +56,11 @@ class UserSegmentHistoryRewriter : public RewriterInterface {
   UserSegmentHistoryRewriter(const dictionary::PosMatcher& pos_matcher,
                              const dictionary::PosGroup& pos_group);
 
+  // Prediction/suggestion only promotes learned symbols, not ordinary words.
+  int capability(const ConversionRequest& request) const override {
+    return RewriterInterface::ALL;
+  }
+
   bool Rewrite(const ConversionRequest& request,
                Segments* segments) const override;
 
@@ -121,7 +126,8 @@ class UserSegmentHistoryRewriter : public RewriterInterface {
   void RememberFirstCandidate(const ConversionRequest& request,
                               const Segments& segments, size_t segment_index,
                               size_t value_begin, size_t value_end,
-                              std::vector<RevertEntry>& revert_entries);
+                              std::vector<RevertEntry>& revert_entries,
+                              bool allow_punctuation);
 
   void RememberNumberPreference(const Segment& segment,
                                 std::vector<RevertEntry>& revert_entries);
