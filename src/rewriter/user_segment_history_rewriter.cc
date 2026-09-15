@@ -98,6 +98,41 @@ bool UseInnerSegments(const ConversionRequest& request) {
   return request.request().mixed_conversion();
 }
 
+bool IsAsciiAlphaNumericKey(absl::string_view key) {
+  if (key.size() != 1) {
+    return false;
+  }
+  const unsigned char c = static_cast<unsigned char>(key[0]);
+  return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+         (c >= 'a' && c <= 'z');
+}
+
+bool IsPunctuationForSymbolChoice(absl::string_view value) {
+  return value == "。" || value == "｡" || value == "、" || value == "､" ||
+         value == "，" || value == "," || value == "．" || value == ".";
+}
+
+// Classify from the source key itself. A digit or letter may have a
+// symbol-like candidate (for example 1 -> ①), but that candidate must
+// never promote the source key into symbol learning.
+bool IsSymbolKeySegment(const Segment& segment) {
+  if (segment.key_len() != 1 || IsAsciiAlphaNumericKey(segment.key())) {
+    return false;
+  }
+  const Util::ScriptType script_type = Util::GetScriptType(segment.key());
+  if (script_type == Util::NUMBER || script_type == Util::ALPHABET) {
+    return false;
+  }
+  return script_type == Util::UNKNOWN_SCRIPT ||
+         Util::IsKanaSymbolContained(segment.key());
+}
+
+bool IsExplicitSymbolKeyVariantChoice(const Segment& segment) {
+  return segment.candidates_size() > 0 && IsSymbolKeySegment(segment) &&
+         (segment.candidate(0).attributes & converter::Attribute::RERANKED) &&
+         segment.candidate(0).value != segment.key();
+}
+
 class FeatureValue {
  public:
   FeatureValue() : feature_type_(1), reserved_(0) {}
@@ -645,24 +680,24 @@ void UserSegmentHistoryRewriter::RememberNumberPreference(
     // separated and default is learned at same time
     // This problem is solved by workaround on lookup.
     Insert(FeatureKey::Number(NumberUtil::NumberString::DEFAULT_STYLE),
-          candidate.value, 0, candidate.value.size(), true, revert_entries);
+           candidate.value, 0, candidate.value.size(), true, revert_entries);
   }
 
   // Always insert for numbers
   Insert(FeatureKey::Number(candidate.style), candidate.value, 0,
-        candidate.value.size(), true, revert_entries);
+         candidate.value.size(), true, revert_entries);
 }
 
 void UserSegmentHistoryRewriter::RememberFirstCandidate(
     const ConversionRequest& request, const Segments& segments,
     size_t segment_index, size_t value_begin, size_t value_end,
-    std::vector<RevertEntry>& revert_entries) {
+    std::vector<RevertEntry>& revert_entries, bool allow_punctuation) {
   const Segment& seg = segments.segment(segment_index);
   const converter::Candidate& candidate = seg.candidate(0);
 
-  // http://b/issue?id=3156109
-  // Do not remember the preference of Punctuations
-  if (IsPunctuation(seg, candidate)) {
+  // Keep Mozc's legacy punctuation suppression unless the new live-symbol
+  // path explicitly opts into punctuation learning.
+  if (IsPunctuation(seg, candidate) && !allow_punctuation) {
     return;
   }
 
@@ -838,7 +873,23 @@ Segments UserSegmentHistoryRewriter::MakeLearningSegmentsFromInnerSegments(
 
 void UserSegmentHistoryRewriter::Finish(const ConversionRequest& request,
                                         const Segments& segments) {
-  if (request.request_type() != ConversionRequest::CONVERSION) {
+  const bool is_prediction_or_suggestion =
+      request.request_type() == ConversionRequest::PREDICTION ||
+      request.request_type() == ConversionRequest::SUGGESTION ||
+      request.request_type() == ConversionRequest::PARTIAL_PREDICTION ||
+      request.request_type() == ConversionRequest::PARTIAL_SUGGESTION;
+  if (request.request_type() != ConversionRequest::CONVERSION &&
+      !is_prediction_or_suggestion) {
+    return;
+  }
+
+  // Prediction/suggestion commits are normally learned by the predictor.
+  // UserSegmentHistoryRewriter only handles an explicitly selected alternative
+  // from a direct symbol key in those request modes.
+  const bool learn_explicit_symbol_key_choice_only =
+      request.request_type() != ConversionRequest::CONVERSION;
+  if (learn_explicit_symbol_key_choice_only &&
+      !request.config().use_symbol_choice_learning()) {
     return;
   }
 
@@ -852,7 +903,7 @@ void UserSegmentHistoryRewriter::Finish(const ConversionRequest& request,
   }
 
   const Segments target_segments =
-      UseInnerSegments(request)
+      UseInnerSegments(request) && !learn_explicit_symbol_key_choice_only
           ? MakeLearningSegmentsFromInnerSegments(request, segments)
           : segments;
   std::vector<RevertEntry> revert_entries;
@@ -864,6 +915,20 @@ void UserSegmentHistoryRewriter::Finish(const ConversionRequest& request,
         segment.segment_type() != Segment::FIXED_VALUE ||
         segment.candidate(0).attributes &
             converter::Attribute::NO_HISTORY_LEARNING) {
+      continue;
+    }
+
+    if (learn_explicit_symbol_key_choice_only &&
+        !IsExplicitSymbolKeyVariantChoice(segment)) {
+      continue;
+    }
+    const bool allow_punctuation =
+        learn_explicit_symbol_key_choice_only &&
+        request.config().use_punctuation_choice_learning();
+    if (learn_explicit_symbol_key_choice_only && !allow_punctuation &&
+        (IsPunctuation(segment, segment.candidate(0)) ||
+         IsPunctuationForSymbolChoice(segment.key()) ||
+         IsPunctuationForSymbolChoice(segment.candidate(0).value))) {
       continue;
     }
     const size_t value_begin = committed_value.size();
@@ -879,7 +944,7 @@ void UserSegmentHistoryRewriter::Finish(const ConversionRequest& request,
 
     InsertTriggerKey(segment);
     RememberFirstCandidate(request, target_segments, i, value_begin, value_end,
-                          revert_entries);
+                           revert_entries, allow_punctuation);
   }
 
   if (!revert_entries.empty()) {
@@ -1009,6 +1074,12 @@ bool UserSegmentHistoryRewriter::RewriteNumber(Segment* segment) const {
 
 bool UserSegmentHistoryRewriter::Rewrite(const ConversionRequest& request,
                                          Segments* segments) const {
+  const bool symbol_key_history_only =
+      request.request_type() != ConversionRequest::CONVERSION;
+  if (symbol_key_history_only &&
+      !request.config().use_symbol_choice_learning()) {
+    return false;
+  }
   if (request.request_type() == ConversionRequest::CONVERSION ||
       !request.key().empty()) {
     MaybeApplyPendingRevert(request);
@@ -1024,10 +1095,12 @@ bool UserSegmentHistoryRewriter::Rewrite(const ConversionRequest& request,
   }
 
   // set BEST_CANDIDATE marker in advance
-  for (Segment& segment : *segments) {
-    DCHECK_GT(segment.candidates_size(), 0);
-    segment.mutable_candidate(0)->attributes |=
-        converter::Attribute::BEST_CANDIDATE;
+  if (!symbol_key_history_only) {
+    for (Segment& segment : *segments) {
+      DCHECK_GT(segment.candidates_size(), 0);
+      segment.mutable_candidate(0)->attributes |=
+          converter::Attribute::BEST_CANDIDATE;
+    }
   }
 
   bool modified = false;
@@ -1041,14 +1114,28 @@ bool UserSegmentHistoryRewriter::Rewrite(const ConversionRequest& request,
       continue;
     }
 
-    if (IsPunctuation(*segment, segment->candidate(0))) {
+    const bool is_symbol_key = IsSymbolKeySegment(*segment);
+    if (symbol_key_history_only && !is_symbol_key) {
+      continue;
+    }
+    if (symbol_key_history_only &&
+        !request.config().use_punctuation_choice_learning() &&
+        (IsPunctuation(*segment, segment->candidate(0)) ||
+         IsPunctuationForSymbolChoice(segment->key()) ||
+         IsPunctuationForSymbolChoice(segment->candidate(0).value))) {
+      continue;
+    }
+
+    // Ordinary punctuation remains excluded. A direct symbol key can use
+    // history here only if an explicit alternative was previously recorded.
+    if (IsPunctuation(*segment, segment->candidate(0)) && !is_symbol_key) {
       continue;
     }
 
     if (IsNumberSegment(*segment)) {
       // Number candidates will be rewritten in number rewriter
       // when number style learning is on.
-      if (!IsNumberStyleLearningEnabled(request)) {
+      if (!symbol_key_history_only && !IsNumberStyleLearningEnabled(request)) {
         modified |= RewriteNumber(segment);
       }
       continue;
@@ -1075,6 +1162,9 @@ bool UserSegmentHistoryRewriter::Rewrite(const ConversionRequest& request,
                               transliteration::NUM_T13N_TYPES);
       }
 
+      // For prediction/suggestion, the whole segment has already been scoped
+      // to a direct symbol key. Do not require every converter-origin
+      // punctuation candidate to carry Candidate::SYMBOL.
       const Score score = GetScore(request, *segments, i, j);
       if (score.score > 0) {
         scores.emplace_back(score, &segment->candidate(j));
@@ -1094,9 +1184,8 @@ bool UserSegmentHistoryRewriter::Rewrite(const ConversionRequest& request,
 
     if (sorted && segment->candidate(0).value != old_top_value) {
       UpdateBestCandidateAfterUserSegmentHistoryRewrite(segment);
-    } else if (sorted &&
-               !(segment->candidate(0).attributes &
-                 converter::Attribute::BEST_CANDIDATE)) {
+    } else if (sorted && !(segment->candidate(0).attributes &
+                           converter::Attribute::BEST_CANDIDATE)) {
       segment->mutable_candidate(0)->attributes |=
           converter::Attribute::USER_SEGMENT_HISTORY_REWRITER;
     }
@@ -1201,9 +1290,8 @@ UserSegmentHistoryRewriter::Score UserSegmentHistoryRewriter::Fetch(
 }
 
 void UserSegmentHistoryRewriter::Insert(
-    absl::string_view key, absl::string_view value,
-    size_t value_begin, size_t value_end, bool force,
-    std::vector<RevertEntry>& revert_entries) {
+    absl::string_view key, absl::string_view value, size_t value_begin,
+    size_t value_end, bool force, std::vector<RevertEntry>& revert_entries) {
   if (key.empty()) {
     return;
   }
@@ -1220,18 +1308,15 @@ void UserSegmentHistoryRewriter::Insert(
 }
 
 void UserSegmentHistoryRewriter::MaybeInsertRevertEntry(
-    absl::string_view key, absl::string_view value,
-    size_t value_begin, size_t value_end,
-    std::vector<RevertEntry>& revert_entries) {
+    absl::string_view key, absl::string_view value, size_t value_begin,
+    size_t value_end, std::vector<RevertEntry>& revert_entries) {
   if (key.empty()) {
     return;
   }
 
-  const auto already_recorded =
-      std::find_if(revert_entries.begin(), revert_entries.end(),
-                   [key](const RevertEntry& entry) {
-                     return entry.key == key;
-                   });
+  const auto already_recorded = std::find_if(
+      revert_entries.begin(), revert_entries.end(),
+      [key](const RevertEntry& entry) { return entry.key == key; });
   if (already_recorded != revert_entries.end()) {
     return;
   }
