@@ -1,0 +1,135 @@
+name: Verify MSI upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful CI for Windows run ID containing the candidate MSI
+        required: true
+        type: string
+      artifact_name:
+        description: Candidate MSI artifact name
+        required: true
+        default: Mozc64_x64.msi
+        type: choice
+        options:
+          - Mozc64_x64.msi
+          - Mozc64_universal.msi
+      previous_tag:
+        description: Previous release tag. Leave empty to use the latest stable release.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: verify-msi-upgrade-${{ inputs.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Resolve and validate candidate run
+        id: candidate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:TARGET_RUN_ID -notmatch '^\d+$') {
+            throw "run_id must be numeric: $env:TARGET_RUN_ID"
+          }
+
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:TARGET_RUN_ID" | ConvertFrom-Json
+          if ($run.name -ne "CI for Windows") {
+            throw "run_id is not a CI for Windows run: $($run.name)"
+          }
+          if ($run.status -ne "completed" -or $run.conclusion -ne "success") {
+            throw "Candidate Windows CI has not succeeded: status=$($run.status) conclusion=$($run.conclusion)"
+          }
+
+          "head_sha=$($run.head_sha)" >> $env:GITHUB_OUTPUT
+          Write-Host "Candidate run $env:TARGET_RUN_ID -> $($run.head_sha)"
+
+      - name: Checkout candidate source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.candidate.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Download candidate MSI artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: candidate
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.run_id }}
+
+      - name: Download previous released MSI
+        id: previous
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "User-Agent" = "mozkey-date-msi-upgrade-check"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:PREVIOUS_TAG)) {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest" -Headers $headers
+          } else {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:PREVIOUS_TAG" -Headers $headers
+          }
+
+          if ($release.draft -or $release.prerelease) {
+            throw "Upgrade baseline must be a stable release: $($release.tag_name)"
+          }
+
+          $asset = $release.assets |
+            Where-Object { $_.name -eq "MozkeyDate-Windows.msi" } |
+            Select-Object -First 1
+          if (-not $asset) {
+            throw "Release '$($release.tag_name)' has no MozkeyDate-Windows.msi asset."
+          }
+
+          New-Item -ItemType Directory -Path previous-release -Force | Out-Null
+          $downloadHeaders = $headers.Clone()
+          $downloadHeaders["Accept"] = "application/octet-stream"
+          Invoke-WebRequest -UseBasicParsing -Uri $asset.url -Headers $downloadHeaders -OutFile "previous-release\MozkeyDate-Windows.msi"
+
+          "tag=$($release.tag_name)" >> $env:GITHUB_OUTPUT
+          Write-Host "Upgrade baseline: $($release.tag_name)"
+
+      - name: Verify previous MSI is replaced by candidate MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $candidate = Get-ChildItem -LiteralPath ".\candidate" -Filter "*.msi" -File | Select-Object -First 1
+          if (-not $candidate) {
+            throw "Candidate artifact does not contain an MSI."
+          }
+          .\tools\windows\test-msi-major-upgrade.ps1 `
+            -PreviousMsi ".\previous-release\MozkeyDate-Windows.msi" `
+            -CandidateMsi $candidate.FullName `
+            -LogDirectory ".\upgrade-logs"
+
+      - name: Upload MSI upgrade logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: msi-upgrade-logs-${{ steps.previous.outputs.tag }}-${{ inputs.run_id }}
+          path: upgrade-logs
+          if-no-files-found: ignore
