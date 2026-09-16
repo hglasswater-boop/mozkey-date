@@ -118,9 +118,12 @@ Precomposition	Space	InsertSpace
 Prediction	Ctrl Down	ConvertNext
 Prediction	Ctrl Up	ConvertPrev
 Prediction	Down	ConvertNext
+Prediction	Shift Tab	ConvertPrev
+Prediction	Tab	ConvertNext
 Prediction	Up	ConvertPrev
 Prediction	Ctrl Delete	DeleteSelectedCandidate
 Suggestion	Ctrl Down	PredictAndConvert
 Suggestion	Ctrl Enter	CommitFirstSuggestion
 Suggestion	Down	PredictAndConvert
 Suggestion	Shift Enter	CommitFirstSuggestion
+Suggestion	Tab	PredictAndConvert
