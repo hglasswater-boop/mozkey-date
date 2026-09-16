@@ -1,0 +1,67 @@
+name: ATOK keymap regression
+
+on:
+  push:
+    paths:
+      - "src/data/keymap/atok.tsv"
+      - ".github/workflows/atok-keymap.yaml"
+  pull_request:
+    paths:
+      - "src/data/keymap/atok.tsv"
+      - ".github/workflows/atok-keymap.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-tab-bindings:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Verify ATOK suggestion and prediction Tab bindings
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path("src/data/keymap/atok.tsv")
+          with path.open(encoding="utf-8", newline="") as f:
+              rows = list(csv.DictReader(f, delimiter="\t"))
+
+          bindings = {}
+          duplicates = []
+          for row in rows:
+              key = (row["status"], row["key"])
+              if key in bindings:
+                  duplicates.append(key)
+              bindings[key] = row["command"]
+
+          if duplicates:
+              raise SystemExit(f"duplicate ATOK bindings: {duplicates}")
+
+          expected = {
+              ("Composition", "Tab"): "PredictAndConvert",
+              ("Suggestion", "Tab"): "PredictAndConvert",
+              ("Conversion", "Tab"): "PredictAndConvert",
+              ("Prediction", "Tab"): "ConvertNext",
+              ("Prediction", "Shift Tab"): "ConvertPrev",
+          }
+
+          errors = []
+          for key, command in expected.items():
+              actual = bindings.get(key)
+              if actual != command:
+                  errors.append(f"{key}: expected {command}, got {actual!r}")
+
+          if errors:
+              raise SystemExit("ATOK Tab regression:\n" + "\n".join(errors))
+
+          print("ATOK Tab bindings are consistent across suggestion/prediction states.")
+          PY
