@@ -114,6 +114,13 @@ function Invoke-MsiUninstall([string]$ProductCode) {
   }
 }
 
+function Get-RequiredFileHash([string]$Path, [string]$Description) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "$Description was not installed at expected path: $Path"
+  }
+  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+}
+
 $PreviousMsi = Get-FullPath $PreviousMsi
 $CandidateMsi = Get-FullPath $CandidateMsi
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
@@ -187,6 +194,7 @@ Write-Host "UpgradeCode:   $candidateUpgradeCode"
 
 $previousLog = Join-Path $LogDirectory "previous-install.log"
 $candidateLog = Join-Path $LogDirectory "candidate-upgrade.log"
+$mozcToolPath = Join-Path $env:ProgramFiles "Mozc\mozc_tool.exe"
 
 try {
   Write-Host "Installing previous MSI..."
@@ -199,6 +207,9 @@ try {
   if ($relatedBefore -notcontains $previousProductCode) {
     throw "Installed previous ProductCode was not discoverable through UpgradeCode $candidateUpgradeCode. Related products: $($relatedBefore -join ', ')"
   }
+
+  $previousMozcToolHash = Get-RequiredFileHash $mozcToolPath "Previous mozc_tool.exe"
+  Write-Host "Previous mozc_tool.exe SHA256: $previousMozcToolHash"
 
   Write-Host "Upgrading with candidate MSI..."
   Invoke-MsiInstall $CandidateMsi $candidateLog
@@ -221,7 +232,14 @@ try {
     throw "Stale Mozkey products remain registered after the upgrade: $($unexpectedRelated -join ', ')"
   }
 
+  $candidateMozcToolHash = Get-RequiredFileHash $mozcToolPath "Candidate mozc_tool.exe"
+  Write-Host "Candidate mozc_tool.exe SHA256: $candidateMozcToolHash"
+  if ($candidateMozcToolHash -eq $previousMozcToolHash) {
+    throw "mozc_tool.exe was not replaced by the candidate MSI. The settings/About binary still matches the previous release."
+  }
+
   Write-Host "Major upgrade verified: candidate is the only product registered for UpgradeCode $candidateUpgradeCode."
+  Write-Host "Installed settings/About binary was replaced by the candidate MSI."
 }
 finally {
   if ((Get-MsiProductState $candidateProductCode) -eq 5) {
