@@ -164,8 +164,8 @@ function Get-RequiredFileHash([string]$Path, [string]$Description) {
 }
 
 function Get-ExpectedMozkeyPeVersions([version]$MsiVersion) {
-  if ($MsiVersion.Major -lt 100 -or $MsiVersion.Build -lt 0) {
-    throw "mozkey-date MSI ProductVersion is not in the expected 100+major.minor.patch namespace: $MsiVersion"
+  if ($MsiVersion.Major -lt 100 -or $MsiVersion.Major -ge 200 -or $MsiVersion.Build -lt 0) {
+    throw "mozkey-date MSI ProductVersion is outside the reserved 100-199 major namespace or lacks a patch component: $MsiVersion"
   }
 
   $releaseMajor = $MsiVersion.Major - 100
