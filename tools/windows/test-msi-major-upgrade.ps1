@@ -163,6 +163,41 @@ function Get-RequiredFileHash([string]$Path, [string]$Description) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
+function Get-ExpectedMozkeyPeVersions([version]$MsiVersion) {
+  if ($MsiVersion.Major -lt 100 -or $MsiVersion.Major -ge 200 -or $MsiVersion.Build -lt 0) {
+    throw "mozkey-date MSI ProductVersion is outside the reserved 100-199 major namespace or lacks a patch component: $MsiVersion"
+  }
+
+  $releaseMajor = $MsiVersion.Major - 100
+  return [pscustomobject]@{
+    FileVersion = "$($MsiVersion.Major).$($MsiVersion.Minor).$($MsiVersion.Build).0"
+    ProductVersion = "v$releaseMajor.$($MsiVersion.Minor).$($MsiVersion.Build)"
+  }
+}
+
+function Assert-InstalledPeVersion(
+    [string]$Path,
+    [string]$ExpectedFileVersion,
+    [string]$ExpectedProductVersion) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Installed binary was not found for PE version verification: $Path"
+  }
+
+  $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
+  $actualFileVersion = ([string]$versionInfo.FileVersion).Trim()
+  $actualProductVersion = ([string]$versionInfo.ProductVersion).Trim()
+
+  Write-Host "Installed mozc_tool.exe FileVersion: $actualFileVersion"
+  Write-Host "Installed mozc_tool.exe ProductVersion: $actualProductVersion"
+
+  if ($actualFileVersion -ne $ExpectedFileVersion) {
+    throw "Installed mozc_tool.exe FileVersion mismatch: expected=$ExpectedFileVersion actual=$actualFileVersion"
+  }
+  if ($actualProductVersion -ne $ExpectedProductVersion) {
+    throw "Installed mozc_tool.exe ProductVersion mismatch: expected=$ExpectedProductVersion actual=$actualProductVersion"
+  }
+}
+
 $PreviousMsi = Get-FullPath $PreviousMsi
 $CandidateMsi = Get-FullPath $CandidateMsi
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
@@ -179,6 +214,7 @@ $candidateMozcToolComponentId = Get-MsiComponentId $CandidateMsi "MozcTool"
 
 $previousVersion = [version]$previousVersionText
 $candidateVersion = [version]$candidateVersionText
+$candidatePeVersions = Get-ExpectedMozkeyPeVersions $candidateVersion
 
 if ($previousProductCode -eq $candidateProductCode) {
   throw "ProductCode must change for a major upgrade: $candidateProductCode"
@@ -235,6 +271,8 @@ function Get-RelatedProducts([string]$UpgradeCode) {
 Write-Host "Previous MSI:  ProductVersion=$previousVersion ProductCode=$previousProductCode"
 Write-Host "Candidate MSI: ProductVersion=$candidateVersion ProductCode=$candidateProductCode"
 Write-Host "UpgradeCode:   $candidateUpgradeCode"
+Write-Host "Expected installed FileVersion: $($candidatePeVersions.FileVersion)"
+Write-Host "Expected installed ProductVersion: $($candidatePeVersions.ProductVersion)"
 
 $previousLog = Join-Path $LogDirectory "previous-install.log"
 $candidateLog = Join-Path $LogDirectory "candidate-upgrade.log"
@@ -285,8 +323,22 @@ try {
     throw "mozc_tool.exe was not replaced by the candidate MSI. The settings/About binary still matches the previous release."
   }
 
+  $sameMozcToolPath = [System.StringComparer]::OrdinalIgnoreCase.Equals(
+    $previousMozcToolPath,
+    $candidateMozcToolPath
+  )
+  if (-not $sameMozcToolPath -and (Test-Path -LiteralPath $previousMozcToolPath -PathType Leaf)) {
+    throw "Previous mozc_tool.exe still exists after upgrade at stale path: $previousMozcToolPath"
+  }
+
+  Assert-InstalledPeVersion `
+    $candidateMozcToolPath `
+    $candidatePeVersions.FileVersion `
+    $candidatePeVersions.ProductVersion
+
   Write-Host "Major upgrade verified: candidate is the only product registered for UpgradeCode $candidateUpgradeCode."
   Write-Host "Installed settings/About binary was replaced by the candidate MSI."
+  Write-Host "Installed PE versions match the mozkey-date release version."
 }
 finally {
   if ((Get-MsiProductState $candidateProductCode) -eq 5) {
