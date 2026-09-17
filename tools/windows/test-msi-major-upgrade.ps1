@@ -251,10 +251,7 @@ try {
     throw "Installed previous ProductCode was not discoverable through UpgradeCode $candidateUpgradeCode. Related products: $($relatedBefore -join ', ')"
   }
 
-  $previousMozcToolPath = Get-InstalledComponentPath \
-    $previousProductCode \
-    $previousMozcToolComponentId \
-    "Previous mozc_tool.exe"
+  $previousMozcToolPath = Get-InstalledComponentPath $previousProductCode $previousMozcToolComponentId "Previous mozc_tool.exe"
   $previousMozcToolHash = Get-RequiredFileHash $previousMozcToolPath "Previous mozc_tool.exe"
   Write-Host "Previous mozc_tool.exe path: $previousMozcToolPath"
   Write-Host "Previous mozc_tool.exe SHA256: $previousMozcToolHash"
@@ -280,10 +277,7 @@ try {
     throw "Stale Mozkey products remain registered after the upgrade: $($unexpectedRelated -join ', ')"
   }
 
-  $candidateMozcToolPath = Get-InstalledComponentPath \
-    $candidateProductCode \
-    $candidateMozcToolComponentId \
-    "Candidate mozc_tool.exe"
+  $candidateMozcToolPath = Get-InstalledComponentPath $candidateProductCode $candidateMozcToolComponentId "Candidate mozc_tool.exe"
   $candidateMozcToolHash = Get-RequiredFileHash $candidateMozcToolPath "Candidate mozc_tool.exe"
   Write-Host "Candidate mozc_tool.exe path: $candidateMozcToolPath"
   Write-Host "Candidate mozc_tool.exe SHA256: $candidateMozcToolHash"
