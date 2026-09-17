@@ -1,0 +1,79 @@
+name: Symbol Learning Checks
+
+on:
+  pull_request:
+    paths:
+      - "src/rewriter/user_segment_history_rewriter.cc"
+      - "src/rewriter/user_segment_history_rewriter.h"
+      - "src/rewriter/user_segment_history_rewriter_test.cc"
+      - "src/rewriter/variants_rewriter.cc"
+      - "src/rewriter/variants_rewriter_test.cc"
+      - "src/rewriter/BUILD.bazel"
+      - "src/protocol/config.proto"
+      - "src/gui/config_dialog/config_dialog.cc"
+      - "src/gui/config_dialog/config_dialog.ui"
+      - ".github/workflows/symbol-learning.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/rewriter/user_segment_history_rewriter.cc"
+      - "src/rewriter/user_segment_history_rewriter.h"
+      - "src/rewriter/user_segment_history_rewriter_test.cc"
+      - "src/rewriter/variants_rewriter.cc"
+      - "src/rewriter/variants_rewriter_test.cc"
+      - "src/rewriter/BUILD.bazel"
+      - "src/protocol/config.proto"
+      - "src/gui/config_dialog/config_dialog.cc"
+      - "src/gui/config_dialog/config_dialog.ui"
+      - ".github/workflows/symbol-learning.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  user_segment_history:
+    name: User segment history regression tests
+    runs-on: windows-2025
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Restore dependency download cache
+        uses: actions/cache/restore@v5
+        with:
+          path: src/third_party_cache
+          key: update-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/build_tools/update_deps.py') }}
+
+      - name: Install dependencies
+        shell: cmd
+        working-directory: .\src
+        run: |
+          python build_tools/update_deps.py
+
+      - name: Restore Bazel disk cache
+        uses: actions/cache/restore@v5
+        with:
+          path: src/.bazel-disk-cache
+          key: symbol-bazel-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ runner.arch }}-v2-
+            bazel-${{ runner.os }}-${{ runner.arch }}-v1-
+
+      - name: Run user segment history tests
+        shell: cmd
+        working-directory: .\src
+        env:
+          ANDROID_NDK_HOME: ""
+        run: |
+          bazelisk test --config oss_windows --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s --test_output=errors //rewriter:user_segment_history_rewriter_test //rewriter:variants_rewriter_test

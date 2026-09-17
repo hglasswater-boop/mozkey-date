@@ -186,7 +186,9 @@ mozc_cc_test(
     timeout = "moderate",
     srcs = ["user_segment_history_rewriter_test.cc"],
     deps = [
+        ":merger_rewriter",
         ":number_rewriter",
+        ":symbol_rewriter",
         ":user_segment_history_rewriter",
         ":variants_rewriter",
         "//base:clock",
