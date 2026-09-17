@@ -62,6 +62,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           $sensitive = @(
             "src/version.bzl",
+            "src/build_tools/gen_win32_resource_header.py",
+            "src/build_tools/mozc_win32_resource_template.rc",
             "src/win32/installer/",
             "tools/windows/test-msi-major-upgrade.ps1",
             ".github/workflows/windows.yaml",
