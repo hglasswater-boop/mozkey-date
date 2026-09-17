@@ -16,7 +16,10 @@ function Get-FullPath([string]$Path) {
   return [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Path).Path)
 }
 
-function Get-MsiProperty([string]$Path, [string]$PropertyName) {
+function Get-MsiDatabaseValue(
+    [string]$Path,
+    [string]$Query,
+    [string]$Description) {
   $installer = $null
   $database = $null
   $view = $null
@@ -30,13 +33,12 @@ function Get-MsiProperty([string]$Path, [string]$PropertyName) {
       $installer,
       @($Path, 0)
     )
-    $query = "SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = '$PropertyName'"
     $view = $database.GetType().InvokeMember(
       "OpenView",
       [System.Reflection.BindingFlags]::InvokeMethod,
       $null,
       $database,
-      @($query)
+      @($Query)
     )
     $view.GetType().InvokeMember(
       "Execute",
@@ -53,7 +55,7 @@ function Get-MsiProperty([string]$Path, [string]$PropertyName) {
       $null
     )
     if ($null -eq $record) {
-      throw "MSI property '$PropertyName' was not found in $Path"
+      throw "$Description was not found in $Path"
     }
 
     $value = $record.GetType().InvokeMember(
@@ -79,6 +81,46 @@ function Get-MsiProperty([string]$Path, [string]$PropertyName) {
       if ($null -ne $comObject -and [System.Runtime.InteropServices.Marshal]::IsComObject($comObject)) {
         [System.Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) | Out-Null
       }
+    }
+  }
+}
+
+function Get-MsiProperty([string]$Path, [string]$PropertyName) {
+  $query = "SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = '$PropertyName'"
+  return Get-MsiDatabaseValue $Path $query "MSI property '$PropertyName'"
+}
+
+function Get-MsiComponentId([string]$Path, [string]$ComponentName) {
+  $query = "SELECT ``ComponentId`` FROM ``Component`` WHERE ``Component`` = '$ComponentName'"
+  return Get-MsiDatabaseValue $Path $query "MSI component '$ComponentName'"
+}
+
+function Get-InstalledComponentPath(
+    [string]$ProductCode,
+    [string]$ComponentId,
+    [string]$Description) {
+  $installer = $null
+  try {
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $path = $installer.GetType().InvokeMember(
+      "ComponentPath",
+      [System.Reflection.BindingFlags]::GetProperty,
+      $null,
+      $installer,
+      @($ProductCode, $ComponentId)
+    )
+    if ([string]::IsNullOrWhiteSpace([string]$path)) {
+      throw "$Description does not have an installed key path for product $ProductCode and component $ComponentId."
+    }
+    $path = [System.IO.Path]::GetFullPath([string]$path)
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+      throw "$Description was registered at '$path', but the file does not exist."
+    }
+    return $path
+  }
+  finally {
+    if ($null -ne $installer -and [System.Runtime.InteropServices.Marshal]::IsComObject($installer)) {
+      [System.Runtime.InteropServices.Marshal]::ReleaseComObject($installer) | Out-Null
     }
   }
 }
@@ -132,6 +174,8 @@ $previousUpgradeCode = Get-MsiProperty $PreviousMsi "UpgradeCode"
 $candidateUpgradeCode = Get-MsiProperty $CandidateMsi "UpgradeCode"
 $previousVersionText = Get-MsiProperty $PreviousMsi "ProductVersion"
 $candidateVersionText = Get-MsiProperty $CandidateMsi "ProductVersion"
+$previousMozcToolComponentId = Get-MsiComponentId $PreviousMsi "MozcTool"
+$candidateMozcToolComponentId = Get-MsiComponentId $CandidateMsi "MozcTool"
 
 $previousVersion = [version]$previousVersionText
 $candidateVersion = [version]$candidateVersionText
@@ -194,7 +238,6 @@ Write-Host "UpgradeCode:   $candidateUpgradeCode"
 
 $previousLog = Join-Path $LogDirectory "previous-install.log"
 $candidateLog = Join-Path $LogDirectory "candidate-upgrade.log"
-$mozcToolPath = Join-Path $env:ProgramFiles "Mozc\mozc_tool.exe"
 
 try {
   Write-Host "Installing previous MSI..."
@@ -208,7 +251,12 @@ try {
     throw "Installed previous ProductCode was not discoverable through UpgradeCode $candidateUpgradeCode. Related products: $($relatedBefore -join ', ')"
   }
 
-  $previousMozcToolHash = Get-RequiredFileHash $mozcToolPath "Previous mozc_tool.exe"
+  $previousMozcToolPath = Get-InstalledComponentPath \
+    $previousProductCode \
+    $previousMozcToolComponentId \
+    "Previous mozc_tool.exe"
+  $previousMozcToolHash = Get-RequiredFileHash $previousMozcToolPath "Previous mozc_tool.exe"
+  Write-Host "Previous mozc_tool.exe path: $previousMozcToolPath"
   Write-Host "Previous mozc_tool.exe SHA256: $previousMozcToolHash"
 
   Write-Host "Upgrading with candidate MSI..."
@@ -232,7 +280,12 @@ try {
     throw "Stale Mozkey products remain registered after the upgrade: $($unexpectedRelated -join ', ')"
   }
 
-  $candidateMozcToolHash = Get-RequiredFileHash $mozcToolPath "Candidate mozc_tool.exe"
+  $candidateMozcToolPath = Get-InstalledComponentPath \
+    $candidateProductCode \
+    $candidateMozcToolComponentId \
+    "Candidate mozc_tool.exe"
+  $candidateMozcToolHash = Get-RequiredFileHash $candidateMozcToolPath "Candidate mozc_tool.exe"
+  Write-Host "Candidate mozc_tool.exe path: $candidateMozcToolPath"
   Write-Host "Candidate mozc_tool.exe SHA256: $candidateMozcToolHash"
   if ($candidateMozcToolHash -eq $previousMozcToolHash) {
     throw "mozc_tool.exe was not replaced by the candidate MSI. The settings/About binary still matches the previous release."
