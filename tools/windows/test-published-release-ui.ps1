@@ -188,6 +188,7 @@ $MsiPath = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $MsiPath).Pa
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 $installLog = Join-Path $OutputDirectory "install.log"
+$uninstallLog = Join-Path $OutputDirectory "uninstall.log"
 
 $installed = $false
 $about = $null
@@ -262,15 +263,12 @@ finally {
     Stop-Tool $config.Process
   }
   if ($installed) {
-    $products = Get-CimInstance Win32_Product | Where-Object {
-      $_.Name -match 'Mozc|Mozkey'
-    }
-    foreach ($product in $products) {
-      if (-not [string]::IsNullOrWhiteSpace([string]$product.IdentifyingNumber)) {
-        Start-Process -FilePath "msiexec.exe" -ArgumentList @(
-          "/x", $product.IdentifyingNumber, "/qn", "/norestart"
-        ) -Wait | Out-Null
-      }
+    Write-Host "Uninstalling released MSI used by UI smoke test."
+    $uninstall = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
+      "/x", "`"$MsiPath`"", "/qn", "/norestart", "/L*v", "`"$uninstallLog`""
+    ) -Wait -PassThru
+    if ($uninstall.ExitCode -notin @(0, 1605, 1641, 3010)) {
+      throw "Released MSI uninstall failed with exit code $($uninstall.ExitCode)."
     }
   }
 }
