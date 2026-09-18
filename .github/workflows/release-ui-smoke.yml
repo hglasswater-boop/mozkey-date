@@ -13,7 +13,7 @@ on:
   push:
     paths:
       - ".github/workflows/release-ui-smoke.yml"
-      - "tools/windows/test-release-ui-smoke.ps1"
+      - "tools/windows/test-published-release-ui.ps1"
 
 permissions:
   contents: read
@@ -85,7 +85,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           $ErrorActionPreference = "Stop"
-          .\tools\windows\test-release-ui-smoke.ps1 `
+          .\tools\windows\test-published-release-ui.ps1 `
             -ReleaseTag $env:RELEASE_TAG `
             -MsiPath ".\release\MozkeyDate-Windows.msi" `
             -OutputDirectory ".\release-ui-smoke"
