@@ -1,0 +1,99 @@
+name: Release Windows UI smoke
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to verify, for example v0.2.3
+        required: false
+        type: string
+  push:
+    paths:
+      - ".github/workflows/release-ui-smoke.yml"
+      - "tools/windows/test-published-release-ui.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve release tag
+        id: release
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ($env:EVENT_NAME -eq "release") {
+            $tag = $env:EVENT_RELEASE_TAG
+          } elseif (-not [string]::IsNullOrWhiteSpace($env:INPUT_RELEASE_TAG)) {
+            $tag = $env:INPUT_RELEASE_TAG.Trim()
+          } else {
+            $major = [regex]::Match((Get-Content src/version.bzl -Raw), '(?m)^MOZKEY_RELEASE_VERSION_MAJOR = ([0-9]+)$').Groups[1].Value
+            $minor = [regex]::Match((Get-Content src/version.bzl -Raw), '(?m)^MOZKEY_RELEASE_VERSION_MINOR = ([0-9]+)$').Groups[1].Value
+            $patch = [regex]::Match((Get-Content src/version.bzl -Raw), '(?m)^MOZKEY_RELEASE_VERSION_PATCH = ([0-9]+)$').Groups[1].Value
+            if ([string]::IsNullOrWhiteSpace($major) -or
+                [string]::IsNullOrWhiteSpace($minor) -or
+                [string]::IsNullOrWhiteSpace($patch)) {
+              throw "Could not derive mozkey-date release version from src/version.bzl."
+            }
+            $tag = "v$major.$minor.$patch"
+          }
+
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "Release tag must be vX.Y.Z: $tag"
+          }
+
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Release UI smoke target: $tag"
+
+      - name: Download published Windows MSI
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          gh release download $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern "MozkeyDate-Windows.msi" `
+            --dir release `
+            --clobber
+          if (-not (Test-Path -LiteralPath "release\MozkeyDate-Windows.msi" -PathType Leaf)) {
+            throw "MozkeyDate-Windows.msi was not downloaded for $env:RELEASE_TAG."
+          }
+
+      - name: Verify installed About and settings UI
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          .\tools\windows\test-published-release-ui.ps1 `
+            -ReleaseTag $env:RELEASE_TAG `
+            -MsiPath ".\release\MozkeyDate-Windows.msi" `
+            -OutputDirectory ".\release-ui-smoke"
+
+      - name: Upload UI smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-release-ui-smoke-${{ steps.release.outputs.tag }}
+          path: release-ui-smoke
+          if-no-files-found: warn
