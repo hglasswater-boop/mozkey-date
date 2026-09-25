@@ -1,25 +1,30 @@
 name: Release Windows UI smoke
 
 on:
-  release:
-    types:
-      - published
-  workflow_run:
-    workflows:
-      - Publish Windows release
-    types:
-      - completed
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag to verify, for example v0.2.5
+        required: true
+        type: string
+      release_sha:
+        description: Commit SHA the release tag must resolve to
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag to verify, for example v0.2.3
+        description: Release tag to verify, for example v0.2.5
+        required: false
+        type: string
+      release_sha:
+        description: Optional commit SHA to checkout and verify
         required: false
         type: string
   push:
     paths:
       - ".github/workflows/release-ui-smoke.yml"
+      - ".github/workflows/release-windows.yml"
       - "tools/windows/test-published-release-ui.ps1"
 
 permissions:
@@ -27,30 +32,27 @@ permissions:
 
 jobs:
   smoke:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: windows-2025
     timeout-minutes: 20
 
     steps:
-      - name: Checkout
+      - name: Checkout release target
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          ref: ${{ inputs.release_sha || github.sha }}
 
       - name: Resolve release tag
         id: release
         shell: pwsh
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           $ErrorActionPreference = "Stop"
 
-          if ($env:EVENT_NAME -eq "release") {
-            $tag = $env:EVENT_RELEASE_TAG
-          } elseif (-not [string]::IsNullOrWhiteSpace($env:INPUT_RELEASE_TAG)) {
+          if (-not [string]::IsNullOrWhiteSpace($env:INPUT_RELEASE_TAG)) {
             $tag = $env:INPUT_RELEASE_TAG.Trim()
           } else {
             $major = [regex]::Match((Get-Content src/version.bzl -Raw), '(?m)^MOZKEY_RELEASE_VERSION_MAJOR = ([0-9]+)$').Groups[1].Value
@@ -66,6 +68,19 @@ jobs:
 
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
             throw "Release tag must be vX.Y.Z: $tag"
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:INPUT_RELEASE_SHA)) {
+            if ($env:INPUT_RELEASE_SHA -notmatch '^[0-9a-f]{40}$') {
+              throw "release_sha must be a full lowercase commit SHA: $env:INPUT_RELEASE_SHA"
+            }
+            $tagSha = (git rev-list -n 1 $tag 2>$null).Trim()
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagSha)) {
+              throw "Could not resolve release tag in checkout: $tag"
+            }
+            if ($tagSha -ne $env:INPUT_RELEASE_SHA) {
+              throw "Release tag/SHA mismatch: tag=$tag expected=$env:INPUT_RELEASE_SHA actual=$tagSha"
+            }
           }
 
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append

@@ -348,3 +348,11 @@ jobs:
               --generate-notes \
               --verify-tag
           fi
+
+  release_ui_smoke:
+    needs: publish
+    if: needs.publish.result == 'success'
+    uses: ./.github/workflows/release-ui-smoke.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+      release_sha: ${{ inputs.release_sha }}
