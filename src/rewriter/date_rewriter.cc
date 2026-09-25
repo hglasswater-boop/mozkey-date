@@ -976,6 +976,45 @@ std::vector<std::string> GetConversions(
 
   return results;
 }
+
+std::vector<DateCandidate> GetWeekdayConversions(
+    const DateRewriter::DateData& data,
+    absl::Span<const std::string> extra_date_formats) {
+  DCHECK_EQ(data.type, WEEKDAY);
+  const absl::TimeZone tz = Clock::GetTimeZone();
+  const absl::CivilDay today =
+      absl::ToCivilDay(Clock::GetAbslTime(), tz);
+  const int today_weekday = static_cast<int>(absl::GetWeekday(today));
+  const absl::CivilDay current_weekday =
+      today + (data.diff - today_weekday);
+  constexpr int kWeekOffsets[] = {0, 7, -7};
+  constexpr absl::string_view kDescriptions[] = {
+      "今週の日付", "来週の日付", "先週の日付"};
+
+  std::vector<DateCandidate> results;
+  for (size_t i = 0; i < std::size(kWeekOffsets); ++i) {
+    const absl::CivilDay day = current_weekday + kWeekOffsets[i];
+    const absl::Time at = absl::FromCivil(
+        absl::CivilSecond(day.year(), day.month(), day.day(), 0, 0, 0), tz);
+    for (const absl::string_view date_format : extra_date_formats) {
+      results.emplace_back(absl::FormatTime(date_format, at, tz),
+                           kDescriptions[i]);
+    }
+    for (std::string conversion : DateRewriter::ConvertDateWithYear(
+             day.year(), day.month(), day.day())) {
+      results.emplace_back(std::move(conversion), kDescriptions[i]);
+    }
+    std::vector<std::string> era;
+    if (DateRewriter::AdToEra(day.year(), day.month(), &era) && !era.empty()) {
+      results.emplace_back(
+          absl::StrFormat("%s年%d月%d日", era[0], day.month(), day.day()),
+          kDescriptions[i]);
+    }
+  }
+  results.emplace_back(
+      absl::StrFormat("%s曜日", kWeekDayString[data.diff]), "曜日");
+  return results;
+}
 }  // namespace
 
 bool DateRewriter::RewriteDate(
@@ -990,8 +1029,15 @@ bool DateRewriter::RewriteDate(
   }
 
   const DateData& data = *rit;
-  std::vector<std::string> conversions =
-      GetConversions(data, extra_date_formats, extra_datetime_formats);
+  std::vector<DateCandidate> conversions;
+  if (data.type == WEEKDAY) {
+    conversions = GetWeekdayConversions(data, extra_date_formats);
+  } else {
+    for (std::string conversion :
+         GetConversions(data, extra_date_formats, extra_datetime_formats)) {
+      conversions.emplace_back(std::move(conversion), data.description);
+    }
+  }
   if (conversions.empty()) {
     return false;
   }
@@ -1014,9 +1060,10 @@ bool DateRewriter::RewriteDate(
   const converter::Candidate& base_cand = segment->candidate(cand_idx);
   std::vector<std::unique_ptr<converter::Candidate>> candidates;
   candidates.reserve(conversions.size());
-  for (std::string& conversion : conversions) {
-    candidates.push_back(CreateCandidate(base_cand, std::move(conversion),
-                                         std::string(data.description)));
+  for (DateCandidate& conversion : conversions) {
+    candidates.push_back(CreateCandidate(
+        base_cand, std::move(conversion.candidate),
+        std::string(conversion.description)));
   }
 
   // Date candidates are too many, therefore highest candidate show at most 3rd.
@@ -1315,8 +1362,8 @@ std::optional<ParsedDateExpression> ParseSeparatedDateExpression(
     }
 
     if (!ParseDatePart(value.substr(0, first), 4, 4, &parsed.year) ||
-        !ParseDatePart(value.substr(first + 1, second - first - 1),
-                       1, 2, &parsed.month) ||
+        !ParseDatePart(value.substr(first + 1, second - first - 1), 1, 2,
+                       &parsed.month) ||
         !ParseDatePart(value.substr(second + 1), 1, 2, &parsed.day) ||
         !IsValidDate(parsed.year, parsed.month, parsed.day)) {
       return std::nullopt;
@@ -1380,8 +1427,7 @@ std::optional<ParsedDateExpression> GetSeparatedDateExpression(
     return parsed;
   }
   for (size_t i = 0; i < segment.meta_candidates_size(); ++i) {
-    if (parsed = ParseSeparatedDateExpression(
-            segment.meta_candidate(i).value);
+    if (parsed = ParseSeparatedDateExpression(segment.meta_candidate(i).value);
         parsed) {
       return parsed;
     }
@@ -1436,12 +1482,10 @@ bool AppendFullDateCandidates(
   const int weekday = static_cast<int>(absl::GetWeekday(civil_day));
   const absl::string_view weekday_text = kWeekDayString[weekday];
   AppendDateCandidateIfMissing(
-      absl::StrFormat("%d/%02d/%02d(%s)", year, month, day,
-                      weekday_text),
+      absl::StrFormat("%d/%02d/%02d(%s)", year, month, day, weekday_text),
       results);
   AppendDateCandidateIfMissing(
-      absl::StrFormat("%d年%d月%d日(%s)", year, month, day,
-                      weekday_text),
+      absl::StrFormat("%d年%d月%d日(%s)", year, month, day, weekday_text),
       results);
 
   std::vector<std::string> era;
@@ -1449,8 +1493,7 @@ bool AppendFullDateCandidates(
     AppendDateCandidateIfMissing(
         absl::StrFormat("%s年%d月%d日", era[0], month, day), results);
     AppendDateCandidateIfMissing(
-        absl::StrFormat("%s年%d月%d日(%s)", era[0], month, day,
-                        weekday_text),
+        absl::StrFormat("%s年%d月%d日(%s)", era[0], month, day, weekday_text),
         results);
   }
   return true;
@@ -1560,17 +1603,16 @@ bool DateRewriter::RewriteConsecutiveDigits(
       }
       insert_position = 1;
     } else {
-      results.insert(results.begin(),
-                     DateCandidate(raw_input, kDateDescription));
+      results.insert(results.begin(), DateCandidate(raw_input, kDateDescription));
       insert_position = 0;
     }
   }
 
   // The existence of segment->candidate(0) or segment->meta_candidate(0) is
   // guaranteed at the above check.
-  const converter::Candidate& top_cand = (segment->candidates_size() > 0)
-                                             ? segment->candidate(0)
-                                             : segment->meta_candidate(0);
+  const converter::Candidate& top_cand =
+      (segment->candidates_size() > 0) ? segment->candidate(0)
+                                       : segment->meta_candidate(0);
   std::vector<std::unique_ptr<converter::Candidate>> candidates;
   candidates.reserve(results.size());
   for (DateCandidate& result : results) {
@@ -1812,7 +1854,7 @@ bool DateRewriter::Rewrite(const ConversionRequest& request,
 
   bool modified = false;
   std::vector<std::string> extra_date_formats =
-    GetExtraFormats(dictionary_, kExtraDateFormatKey);
+      GetExtraFormats(dictionary_, kExtraDateFormatKey);
   if (request.config().date_conversion_custom_formats_size() > 0) {
     std::vector<std::string> configured_formats;
     configured_formats.reserve(
@@ -1869,7 +1911,7 @@ bool DateRewriter::Rewrite(const ConversionRequest& request,
       break;
   }
   modified |= RewriteConsecutiveDigits(
-    request.composer(), extra_date_formats, insert_pos, segments);
+      request.composer(), extra_date_formats, insert_pos, segments);
 
   return modified;
 }
