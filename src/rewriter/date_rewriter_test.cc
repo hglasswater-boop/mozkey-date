@@ -781,6 +781,85 @@ TEST_F(DateRewriterTest, AtokStyleMultipleCustomFormatsPreserveOrder) {
   Clock::SetClockForUnitTest(nullptr);
 }
 
+TEST_F(DateRewriterTest, WeekdayCandidatesUseCustomFormatAndWeekOrder) {
+  ClockMock mock_clock(ParseTimeOrDie("2026-09-25T12:00:00Z"));
+  Clock::SetClockForUnitTest(&mock_clock);
+
+  auto table = std::make_shared<composer::Table>();
+  const commands::Request command_request;
+  config::Config config;
+  config.set_date_conversion_custom_format("{YEAR}.{MONTH}.{DATE}");
+  const composer::Composer composer(table, command_request, config);
+  const ConversionRequest request = ConversionRequestBuilder()
+                                        .SetComposer(composer)
+                                        .SetConfig(config)
+                                        .Build();
+
+  DateRewriter rewriter;
+  Segments segments;
+  const std::pair<absl::string_view, absl::string_view> inputs[] = {
+      {"きんよう", "金曜"},
+      {"きんようび", "金曜日"},
+  };
+
+  for (const auto& [key, value] : inputs) {
+    InitSegment(key, value, &segments);
+    ASSERT_TRUE(rewriter.Rewrite(request, &segments)) << key;
+    ASSERT_EQ(segments.segments_size(), 1);
+    const Segment& segment = segments.segment(0);
+    ASSERT_GE(segment.candidates_size(), 17);
+
+    EXPECT_EQ(segment.candidate(1).value, "2026.09.25");
+    EXPECT_EQ(segment.candidate(1).description, "今週の日付");
+    EXPECT_EQ(segment.candidate(6).value, "2026.10.02");
+    EXPECT_EQ(segment.candidate(6).description, "来週の日付");
+    EXPECT_EQ(segment.candidate(11).value, "2026.09.18");
+    EXPECT_EQ(segment.candidate(11).description, "先週の日付");
+    EXPECT_EQ(segment.candidate(16).value, "金曜日");
+    EXPECT_EQ(segment.candidate(16).description, "曜日");
+  }
+
+  Clock::SetClockForUnitTest(nullptr);
+}
+
+TEST_F(DateRewriterTest, WeekdayCandidatesCrossYearBoundary) {
+  ClockMock mock_clock(ParseTimeOrDie("2026-12-31T12:00:00Z"));
+  Clock::SetClockForUnitTest(&mock_clock);
+
+  auto table = std::make_shared<composer::Table>();
+  const commands::Request command_request;
+  const config::Config config;
+  const composer::Composer composer(table, command_request, config);
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetComposer(composer).Build();
+
+  DateRewriter rewriter;
+  Segments segments;
+  const std::pair<absl::string_view, absl::string_view> inputs[] = {
+      {"げつよう", "月曜"},
+      {"げつようび", "月曜日"},
+  };
+
+  for (const auto& [key, value] : inputs) {
+    InitSegment(key, value, &segments);
+    ASSERT_TRUE(rewriter.Rewrite(request, &segments)) << key;
+    ASSERT_EQ(segments.segments_size(), 1);
+    const Segment& segment = segments.segment(0);
+    ASSERT_GE(segment.candidates_size(), 14);
+
+    EXPECT_EQ(segment.candidate(1).value, "2026/12/28");
+    EXPECT_EQ(segment.candidate(1).description, "今週の日付");
+    EXPECT_EQ(segment.candidate(5).value, "2027/01/04");
+    EXPECT_EQ(segment.candidate(5).description, "来週の日付");
+    EXPECT_EQ(segment.candidate(9).value, "2026/12/21");
+    EXPECT_EQ(segment.candidate(9).description, "先週の日付");
+    EXPECT_EQ(segment.candidate(13).value, "月曜日");
+    EXPECT_EQ(segment.candidate(13).description, "曜日");
+  }
+
+  Clock::SetClockForUnitTest(nullptr);
+}
+
 TEST_F(DateRewriterTest, NumberRewriterTest) {
   Segments segments;
   DateRewriter rewriter;
