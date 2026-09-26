@@ -86,16 +86,12 @@ std::string ConstructServiceName(bool for_testing) {
 
 using ColorTheme = config::Config::RendererWindowColorTheme;
 using CandidatePalette = config::Config::CandidateWindowColorPalette;
-using RubyPalette = config::Config::RubyWindowColorPalette;
 
 constexpr uint32_t kMaxCornerRadius = 24;
 constexpr uint32_t kMinWindowSizePercent = 80;
 constexpr uint32_t kMaxWindowSizePercent = 200;
 constexpr uint32_t kMinWindowOpacityPercent = 20;
 constexpr uint32_t kMaxWindowOpacityPercent = 100;
-constexpr uint32_t kMaxRubyHorizontalPadding = 40;
-constexpr uint32_t kMaxRubyVerticalPadding = 24;
-constexpr uint32_t kMaxRubyCompositionGap = 32;
 constexpr uint32_t kMinFontWeight = 100;
 constexpr uint32_t kMaxFontWeight = 900;
 constexpr uint32_t kFontWeightStep = 100;
@@ -128,18 +124,6 @@ uint32_t ClampWindowSizePercent(uint32_t percent) {
 uint32_t ClampWindowOpacityPercent(uint32_t percent) {
   return std::clamp(percent, kMinWindowOpacityPercent,
                     kMaxWindowOpacityPercent);
-}
-
-uint32_t ClampRubyHorizontalPadding(uint32_t padding) {
-  return std::clamp(padding, 0u, kMaxRubyHorizontalPadding);
-}
-
-uint32_t ClampRubyVerticalPadding(uint32_t padding) {
-  return std::clamp(padding, 0u, kMaxRubyVerticalPadding);
-}
-
-uint32_t ClampRubyCompositionGap(uint32_t gap) {
-  return std::clamp(gap, 0u, kMaxRubyCompositionGap);
 }
 
 uint32_t NormalizeFontWeight(uint32_t weight) {
@@ -194,7 +178,7 @@ void BuildCandidateLikeStyle(ColorTheme theme, const CandidatePalette& palette,
   if (theme == config::Config::RENDERER_WINDOW_COLOR_CUSTOM) {
     ApplyPaletteToCandidateStyle(palette, style);
   }
-  RendererStyleHandler::ApplyCandidateRubyFont(font_name, style);
+  RendererStyleHandler::ApplyCandidateFont(font_name, style);
   style->mutable_candidate_style()->set_font_weight(
       static_cast<int32_t>(NormalizeFontWeight(font_weight)));
   RendererStyleHandler::ApplyCandidateWindowSize(
@@ -211,53 +195,6 @@ uint32_t RgbFromColor(const RendererStyle::RGBAColor& color,
          (static_cast<uint32_t>(color.b()) & 0xff);
 }
 
-RendererStyleHandler::RubyWindowStyle RubyStyleFromCandidateStyle(
-    const RendererStyle& style, uint32_t corner_radius, uint32_t size_percent) {
-  RendererStyleHandler::RubyWindowStyle ruby_style;
-  ruby_style.corner_radius = corner_radius;
-  ruby_style.size_percent = ClampWindowSizePercent(size_percent);
-  if (style.has_border_color()) {
-    ruby_style.border_color = RgbFromColor(style.border_color(),
-                                           ruby_style.border_color);
-  }
-  if (style.candidate_style().has_background_color()) {
-    ruby_style.background_color = RgbFromColor(
-        style.candidate_style().background_color(), ruby_style.background_color);
-  }
-  if (style.candidate_style().has_foreground_color()) {
-    ruby_style.text_color = RgbFromColor(style.candidate_style().foreground_color(),
-                                         ruby_style.text_color);
-  }
-  return ruby_style;
-}
-
-RendererStyleHandler::RubyWindowStyle BuildRubyStyle(
-    ColorTheme theme, const RubyPalette& palette, const RendererStyle& candidate_style,
-    uint32_t corner_radius, uint32_t size_percent) {
-  const uint32_t clamped_size_percent = ClampWindowSizePercent(size_percent);
-  if (theme == config::Config::RENDERER_WINDOW_COLOR_FOLLOW_CANDIDATE) {
-    return RubyStyleFromCandidateStyle(candidate_style, corner_radius,
-                                      clamped_size_percent);
-  }
-
-  if (theme == config::Config::RENDERER_WINDOW_COLOR_CUSTOM) {
-    RendererStyleHandler::RubyWindowStyle ruby_style;
-    ruby_style.background_color = palette.background_color();
-    ruby_style.text_color = palette.text_color();
-    ruby_style.border_color = palette.border_color();
-    ruby_style.corner_radius = corner_radius;
-    ruby_style.size_percent = clamped_size_percent;
-    return ruby_style;
-  }
-
-  RendererStyle preset_style;
-  RendererStyleHandler::GetDefaultRendererStyle(&preset_style);
-  RendererStyleHandler::ApplyCandidateWindowTheme(
-      theme == config::Config::RENDERER_WINDOW_COLOR_DARK, &preset_style);
-  return RubyStyleFromCandidateStyle(preset_style, corner_radius,
-                                    clamped_size_percent);
-}
-
 void UpdateRendererStyleFromConfig() {
   config::ConfigHandler::Reload();
 
@@ -267,13 +204,10 @@ void UpdateRendererStyleFromConfig() {
       GetCandidateWindowColorTheme(*shared_config);
   const ColorTheme suggest_color_theme = NormalizeDependentColorTheme(
       shared_config->suggest_window_color_theme(), candidate_color_theme);
-  const ColorTheme ruby_color_theme =
-      shared_config->ruby_window_color_theme();
-
   RendererStyle candidate_style;
   BuildCandidateLikeStyle(candidate_color_theme,
                           shared_config->candidate_window_custom_color_palette(),
-                          shared_config->candidate_ruby_font_name(),
+                          shared_config->candidate_font_name(),
                           shared_config->candidate_window_font_weight(),
                           shared_config->candidate_window_size_percent(),
                           &candidate_style);
@@ -287,7 +221,7 @@ void UpdateRendererStyleFromConfig() {
       suggest_follows_candidate
           ? shared_config->candidate_window_custom_color_palette()
           : shared_config->suggest_window_custom_color_palette(),
-      shared_config->candidate_ruby_font_name(),
+      shared_config->candidate_font_name(),
       shared_config->suggest_window_font_weight(),
       shared_config->suggest_window_size_percent(), &suggestion_style);
 
@@ -295,34 +229,6 @@ void UpdateRendererStyleFromConfig() {
       ClampCornerRadius(shared_config->candidate_window_custom_corner_radius());
   const uint32_t suggestion_corner_radius =
       ClampCornerRadius(shared_config->suggest_window_custom_corner_radius());
-  const uint32_t ruby_corner_radius =
-      ClampCornerRadius(shared_config->ruby_window_custom_corner_radius());
-
-  RendererStyleHandler::RubyWindowStyle ruby_style = BuildRubyStyle(
-      ruby_color_theme, shared_config->ruby_window_custom_color_palette(),
-      candidate_style, ruby_corner_radius,
-      shared_config->ruby_window_size_percent());
-  ruby_style.enabled =
-      shared_config->show_live_conversion_ruby_window();
-  ruby_style.corner_radius = ruby_corner_radius;
-  ruby_style.size_percent =
-      ClampWindowSizePercent(shared_config->ruby_window_size_percent());
-  ruby_style.font_weight =
-      NormalizeFontWeight(shared_config->ruby_window_font_weight());
-  ruby_style.opacity_percent =
-      ClampWindowOpacityPercent(shared_config->ruby_window_opacity_percent());
-  ruby_style.horizontal_padding = ClampRubyHorizontalPadding(
-      shared_config->ruby_window_horizontal_padding());
-  ruby_style.vertical_padding = ClampRubyVerticalPadding(
-      shared_config->ruby_window_vertical_padding());
-  ruby_style.composition_gap = ClampRubyCompositionGap(
-      shared_config->ruby_window_composition_gap());
-  ruby_style.shadow = BuildShadowStyle(
-      shared_config->ruby_window_shadow_size(),
-      shared_config->ruby_window_shadow_opacity_percent(),
-      shared_config->ruby_window_shadow_angle_degrees(),
-      shared_config->ruby_window_shadow_distance());
-
   const RendererStyleHandler::CandidateWindowEffectStyle
       candidate_effect_style = BuildCandidateEffectStyle(
           shared_config->candidate_window_opacity_percent(),
@@ -339,7 +245,7 @@ void UpdateRendererStyleFromConfig() {
           shared_config->suggest_window_shadow_distance());
 
   RendererStyleHandler::SetRendererWindowStyles(
-      candidate_style, suggestion_style, ruby_style, candidate_corner_radius,
+      candidate_style, suggestion_style, candidate_corner_radius,
       suggestion_corner_radius, candidate_effect_style, suggestion_effect_style);
 }
 

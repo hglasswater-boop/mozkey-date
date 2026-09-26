@@ -97,12 +97,6 @@
   /** |rendererCommand_| stores the command sent to |mozcRenderer_| */
   mozc::commands::RendererCommand rendererCommand_;
 
-  /** Frozen left edge of the live-conversion ruby anchor while composition stays active. */
-  int liveConversionAnchorLeft_;
-  bool hasLiveConversionAnchorLeft_;
-
-  /** True when the current config enables live conversion. */
-  bool useLiveConversion_;
   /** True when a Zenz context-length preflight is useful for this config. */
   bool useZenzContextAcquisition_;
   /** -1 uses Carbon; 0/1 are deterministic test overrides. */
@@ -132,7 +126,6 @@
 @property(readonly) const mozc::commands::RendererCommand &rendererCommand;
 @property(readwrite, assign) NSRange replacementRange;
 @property(readwrite, retain) id imkClientForTest;
-@property(readwrite, assign) bool useLiveConversionForTest;
 @property(readwrite, assign) bool useZenzContextAcquisitionForTest;
 @property(readwrite, assign) int secureEventInputStateForTest;
 
@@ -192,10 +185,6 @@
  * @param preedit The protobuf data representing the composed string.
  */
 - (void)updateComposedString:(const mozc::commands::Preedit *)preedit;
-
-/** Updates the composed string with the display semantics of live conversion. */
-- (void)updateComposedString:(const mozc::commands::Preedit *)preedit
-              liveConversion:(bool)liveConversion;
 
 /** Updates |candidates_| from the result of a key event.
  *

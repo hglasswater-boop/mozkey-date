@@ -13,15 +13,14 @@ namespace {
 
 config::Config EnabledConfig() {
   config::Config config;
-  config.set_use_live_conversion(true);
-  config.set_use_zenz_live_correction(true);
+  config.set_use_zenz_conversion(true);
+  config.set_use_zenz_context(true);
   return config;
 }
 
 TEST(ZenzContextRequestTest, DisabledZenzRequestsNothing) {
   config::Config config;
-  config.set_use_live_conversion(true);
-  config.set_use_zenz_live_correction(false);
+  config.set_use_zenz_conversion(false);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);
@@ -30,10 +29,10 @@ TEST(ZenzContextRequestTest, DisabledZenzRequestsNothing) {
   EXPECT_EQ(request.following_length, 0);
 }
 
-TEST(ZenzContextRequestTest, DisabledLiveConversionRequestsNothing) {
+TEST(ZenzContextRequestTest, DisabledContextRequestsNothing) {
   config::Config config;
-  config.set_use_live_conversion(false);
-  config.set_use_zenz_live_correction(true);
+  config.set_use_zenz_conversion(true);
+  config.set_use_zenz_context(false);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);
@@ -54,7 +53,7 @@ TEST(ZenzContextRequestTest, NonSnapshotStateRequestsNothing) {
 
 TEST(ZenzContextRequestTest, PasswordRequestsNothing) {
   config::Config config = EnabledConfig();
-  config.set_use_zenz_live_correction_right_context(true);
+  config.set_use_zenz_right_context(true);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::PASSWORD, true);
@@ -65,8 +64,8 @@ TEST(ZenzContextRequestTest, PasswordRequestsNothing) {
 
 TEST(ZenzContextRequestTest, UsesProtoDefaultLengths) {
   config::Config config = EnabledConfig();
-  EXPECT_FALSE(config.has_zenz_live_correction_left_context_length());
-  EXPECT_FALSE(config.has_zenz_live_correction_right_context_length());
+  EXPECT_FALSE(config.has_zenz_context_left_length());
+  EXPECT_FALSE(config.has_zenz_context_right_length());
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);
@@ -77,8 +76,8 @@ TEST(ZenzContextRequestTest, UsesProtoDefaultLengths) {
 
 TEST(ZenzContextRequestTest, ExplicitRightContextLengthIsPreserved) {
   config::Config config = EnabledConfig();
-  config.set_use_zenz_live_correction_right_context(true);
-  config.set_zenz_live_correction_right_context_length(16);
+  config.set_use_zenz_right_context(true);
+  config.set_zenz_context_right_length(16);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);
@@ -89,7 +88,7 @@ TEST(ZenzContextRequestTest, ExplicitRightContextLengthIsPreserved) {
 
 TEST(ZenzContextRequestTest, DisabledRightContextRequestsOnlyPreceding) {
   config::Config config = EnabledConfig();
-  config.set_use_zenz_live_correction_right_context(false);
+  config.set_use_zenz_right_context(false);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);
@@ -100,7 +99,7 @@ TEST(ZenzContextRequestTest, DisabledRightContextRequestsOnlyPreceding) {
 
 TEST(ZenzContextRequestTest, ExplicitlyEnabledRightContextUsesProtoDefaultLength) {
   config::Config config = EnabledConfig();
-  config.set_use_zenz_live_correction_right_context(true);
+  config.set_use_zenz_right_context(true);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);
@@ -111,9 +110,9 @@ TEST(ZenzContextRequestTest, ExplicitlyEnabledRightContextUsesProtoDefaultLength
 
 TEST(ZenzContextRequestTest, ClampsBothDirectionsForAcquisition) {
   config::Config config = EnabledConfig();
-  config.set_zenz_live_correction_left_context_length(4096);
-  config.set_use_zenz_live_correction_right_context(true);
-  config.set_zenz_live_correction_right_context_length(4096);
+  config.set_zenz_context_left_length(4096);
+  config.set_use_zenz_right_context(true);
+  config.set_zenz_context_right_length(4096);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);
@@ -124,9 +123,9 @@ TEST(ZenzContextRequestTest, ClampsBothDirectionsForAcquisition) {
 
 TEST(ZenzContextRequestTest, ExplicitZeroLengthsRemainZero) {
   config::Config config = EnabledConfig();
-  config.set_zenz_live_correction_left_context_length(0);
-  config.set_use_zenz_live_correction_right_context(true);
-  config.set_zenz_live_correction_right_context_length(0);
+  config.set_zenz_context_left_length(0);
+  config.set_use_zenz_right_context(true);
+  config.set_zenz_context_right_length(0);
 
   const ZenzContextRequest request =
       GetZenzContextRequest(config, commands::Context::NORMAL, true);

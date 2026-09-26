@@ -94,6 +94,6 @@ Before publishing v0.7.0, verify:
 - Privacy tab layout is correct
 - icons are updated
 - normal conversion works
-- live conversion works
-- Zenz live correction works
+- normal conversion works
+- Zenz normal conversion works
 - Google Japanese Input remains unaffected if installed side by side

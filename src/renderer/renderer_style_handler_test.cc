@@ -47,11 +47,11 @@ TEST(RendererStyleHandlerTest, GetRendererStyle) {
   EXPECT_EQ(400, style.candidate_style().font_weight());
 }
 
-TEST(RendererStyleHandlerTest, ApplyCandidateRubyFont) {
+TEST(RendererStyleHandlerTest, ApplyCandidateFont) {
   RendererStyle style;
   RendererStyleHandler::GetDefaultRendererStyle(&style);
 
-  RendererStyleHandler::ApplyCandidateRubyFont("Yu Gothic UI", &style);
+  RendererStyleHandler::ApplyCandidateFont("Yu Gothic UI", &style);
 
   EXPECT_FALSE(style.shortcut_style().has_font_name());
   EXPECT_EQ("Yu Gothic UI", style.candidate_style().font_name());
@@ -65,11 +65,11 @@ TEST(RendererStyleHandlerTest, ApplyCandidateRubyFont) {
             style.infolist_style().description_style().font_name());
 }
 
-TEST(RendererStyleHandlerTest, ApplyCandidateRubyFontSkipsEmptyFontName) {
+TEST(RendererStyleHandlerTest, ApplyCandidateFontSkipsEmptyFontName) {
   RendererStyle style;
   RendererStyleHandler::GetDefaultRendererStyle(&style);
 
-  RendererStyleHandler::ApplyCandidateRubyFont("", &style);
+  RendererStyleHandler::ApplyCandidateFont("", &style);
 
   EXPECT_FALSE(style.candidate_style().has_font_name());
   EXPECT_FALSE(style.footer_style().has_font_name());
@@ -178,16 +178,6 @@ TEST(RendererStyleHandlerTest, SetRendererWindowStylesSeparatesSuggestion) {
       0x666666, 0x777777, 0x888888, 0x999999, 0xaaaaaa,
       0xbbbbbb, 0xcccccc, 0xdddddd, &suggestion_style);
 
-  RendererStyleHandler::RubyWindowStyle ruby_style;
-  ruby_style.background_color = 0xabcdef;
-  ruby_style.text_color = 0x123456;
-  ruby_style.border_color = 0x654321;
-  ruby_style.corner_radius = 12;
-  ruby_style.font_weight = 700;
-  ruby_style.horizontal_padding = 20;
-  ruby_style.vertical_padding = 8;
-  ruby_style.composition_gap = 7;
-
   RendererStyleHandler::CandidateWindowEffectStyle candidate_effect;
   candidate_effect.opacity_percent = 95;
   candidate_effect.shadow.size = 8;
@@ -202,7 +192,7 @@ TEST(RendererStyleHandlerTest, SetRendererWindowStylesSeparatesSuggestion) {
   suggestion_effect.shadow.distance = 4;
 
   RendererStyleHandler::SetRendererWindowStyles(
-      candidate_style, suggestion_style, ruby_style, 6, 10, candidate_effect,
+      candidate_style, suggestion_style, 6, 10, candidate_effect,
       suggestion_effect);
 
   RendererStyle actual_candidate_style;
@@ -222,14 +212,6 @@ TEST(RendererStyleHandlerTest, SetRendererWindowStylesSeparatesSuggestion) {
                     RendererStyleHandler::RendererStyleType::kCandidate));
   EXPECT_EQ(10u, RendererStyleHandler::GetCandidateWindowCornerRadius(
                      RendererStyleHandler::RendererStyleType::kSuggestion));
-  EXPECT_EQ(0xabcdef,
-            RendererStyleHandler::GetRubyWindowStyle().background_color);
-  EXPECT_EQ(12u, RendererStyleHandler::GetRubyWindowStyle().corner_radius);
-  EXPECT_EQ(700u, RendererStyleHandler::GetRubyWindowStyle().font_weight);
-  EXPECT_EQ(20u,
-            RendererStyleHandler::GetRubyWindowStyle().horizontal_padding);
-  EXPECT_EQ(8u, RendererStyleHandler::GetRubyWindowStyle().vertical_padding);
-  EXPECT_EQ(7u, RendererStyleHandler::GetRubyWindowStyle().composition_gap);
   EXPECT_EQ(95u, RendererStyleHandler::GetCandidateWindowEffectStyle(
                       RendererStyleHandler::RendererStyleType::kCandidate)
                       .opacity_percent);

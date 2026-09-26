@@ -189,46 +189,18 @@ bool CanSurroundingText(absl::string_view bundle_id) {
 }
 
 bool ShouldDisplayRendererForOutput(const Output &output) {
-  return (output.has_candidate_window() &&
-          output.candidate_window().candidate_size() > 0) ||
-         (output.live_conversion() && output.has_preedit());
-}
-
-bool ShouldSuppressCandidateWindowForLiveConversion(
-    const Output &output, bool use_live_conversion) {
-  if (!use_live_conversion ||
-      !output.has_candidate_window() ||
-      output.candidate_window().candidate_size() == 0 ||
-      output.live_conversion()) {
-    return false;
-  }
-
-  const mozc::commands::CandidateWindow &candidate_window =
-      output.candidate_window();
-
-  // focused_index is the protocol-level distinction between an actual
-  // candidate-selection state and a passive suggestion state.  Do not infer
-  // this state from the physical key or require a particular category.
-  return !candidate_window.has_focused_index();
+  return output.has_candidate_window() &&
+         output.candidate_window().candidate_size() > 0;
 }
 
 bool ShouldRecalculateRendererPosition(const RendererCommand &command) {
-  return !command.visible() ||
-         (command.has_output() && command.output().live_conversion());
+  return !command.visible();
 }
 
 int32_t GetRendererAnchorPosition(const Output &output) {
-  // CandidateWindow::position is the protocol-defined position within the
-  // composition.  Live conversion must not replace it with cursor - 1,
-  // because doing so moves a suggestion toward the end of a multi-character
-  // preedit.
-  if (output.has_candidate_window()) {
-    return output.candidate_window().position();
-  }
-
-  // A live-conversion ruby window can be displayed without a candidate
-  // window.  Such a window is anchored to the start of the composition.
-  return 0;
+  return output.has_candidate_window()
+             ? output.candidate_window().position()
+             : 0;
 }
 
 void SetRendererRectangle(
@@ -299,7 +271,6 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
 @synthesize rendererCommand = rendererCommand_;
 @synthesize replacementRange = replacementRange_;
 @synthesize imkClientForTest = imkClientForTest_;
-@synthesize useLiveConversionForTest = useLiveConversion_;
 @synthesize useZenzContextAcquisitionForTest = useZenzContextAcquisition_;
 @synthesize secureEventInputStateForTest = secureEventInputStateForTest_;
 - (mozc::client::ClientInterface *)mozcClient {
@@ -340,9 +311,6 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
   mode_ = mozc::commands::DIRECT;
   suppressSuggestion_ = false;
   yenSignCharacter_ = mozc::config::Config::YEN_SIGN;
-  liveConversionAnchorLeft_ = 0;
-  hasLiveConversionAnchorLeft_ = false;
-  useLiveConversion_ = false;
   useZenzContextAcquisition_ = false;
   secureEventInputStateForTest_ = (server == nil) ? 0 : -1;
   // Unit tests inject mock renderer/client objects immediately after
@@ -495,10 +463,8 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
   }
   [keyCodeMap_ setInputMode:input_mode];
   yenSignCharacter_ = config.yen_sign_character();
-  useLiveConversion_ = config.use_live_conversion();
-  // Avoid an extra TEST_SEND_KEY round trip for ordinary Mozc input.
   useZenzContextAcquisition_ =
-      useLiveConversion_ && config.use_zenz_live_correction();
+      config.use_zenz_conversion() && config.use_zenz_context();
 
   if (config.use_japanese_layout()) {
     // Apple does not have "Japanese" layout actually -- here sets
@@ -721,8 +687,7 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
     }
   }
 
-  [self updateComposedString:&(output->preedit())
-                liveConversion:output->live_conversion()];
+  [self updateComposedString:&(output->preedit())];
   [self updateCandidates:output];
 
   if (output->has_mode()) {
@@ -831,18 +796,10 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
 }
 
 - (void)updateComposedString:(const Preedit *)preedit {
-  [self updateComposedString:preedit liveConversion:false];
-}
-
-- (void)updateComposedString:(const Preedit *)preedit
-              liveConversion:(bool)live_conversion {
-  // If the last and the current composed string length is 0,
-  // we don't update the composition.
   if (([composedString_ length] == 0) &&
       ((preedit == nullptr || preedit->segment_size() == 0))) {
     return;
   }
-
   [composedString_ deleteCharactersInRange:NSMakeRange(0, [composedString_ length])];
   cursorPosition_ = -1;
   useUnspecifiedSelectionRange_ = false;
@@ -853,38 +810,25 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
     NSDictionary *underlineAttributes =
         [self markForStyle:kTSMHiliteConvertedText
                    atRange:NSMakeRange(NSNotFound, 0)];
-
     for (size_t i = 0; i < preedit->segment_size(); ++i) {
       const Preedit::Segment &seg = preedit->segment(static_cast<int32_t>(i));
-      NSDictionary *attributes = nil;
-      if (!live_conversion) {
-        attributes = (seg.annotation() == Preedit::Segment::HIGHLIGHT)
-                         ? highlightAttributes
-                         : underlineAttributes;
-      }
+      NSDictionary *attributes =
+          (seg.annotation() == Preedit::Segment::HIGHLIGHT)
+              ? highlightAttributes
+              : underlineAttributes;
       NSString *seg_string = [NSString stringWithUTF8String:seg.value().c_str()];
       NSAttributedString *seg_attributed_string =
-          [[NSAttributedString alloc] initWithString:seg_string attributes:attributes];
+          [[NSAttributedString alloc] initWithString:seg_string
+                                          attributes:attributes];
       [composedString_ appendAttributedString:seg_attributed_string];
     }
-
-    if (live_conversion && [composedString_ length] > 0) {
-      // Live conversion is a conversion preview, not a focused-clause
-      // selection.  Leaving the selection unspecified lets AppKit keep its
-      // native insertion caret instead of showing Mozc's focused-clause
-      // boundary as the caret.
-      useUnspecifiedSelectionRange_ = true;
-    } else {
-      cursorPosition_ = static_cast<int>(
-          CodePointOffsetToUtf16Offset([composedString_ string], preedit->cursor()));
-    }
+    cursorPosition_ = static_cast<int>(
+        CodePointOffsetToUtf16Offset([composedString_ string], preedit->cursor()));
   }
   if ([composedString_ length] == 0) {
     [originalString_ setString:@""];
     replacementRange_ = NSMakeRange(NSNotFound, 0);
   }
-
-  // Update the composed string of the client applications.
   [[self client] setMarkedText:composedString_
                 selectionRange:[self selectionRange]
               replacementRange:replacementRange_];
@@ -911,7 +855,6 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
 
 
 - (void)clearCandidates {
-  hasLiveConversionAnchorLeft_ = false;
   rendererCommand_.set_type(RendererCommand::UPDATE);
   rendererCommand_.set_visible(false);
   rendererCommand_.clear_output();
@@ -942,14 +885,9 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
 
   if (!rendererCommand_.has_output() ||
       !ShouldDisplayRendererForOutput(rendererCommand_.output())) {
-    hasLiveConversionAnchorLeft_ = false;
     rendererCommand_.set_visible(false);
     mozcRenderer_->ExecCommand(rendererCommand_);
     return;
-  }
-
-  if (!rendererCommand_.output().live_conversion()) {
-    hasLiveConversionAnchorLeft_ = false;
   }
 
   // The candidate window position is not recalculated if the
@@ -983,41 +921,9 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
     // IMKBaseline is the left-bottom coordinate of the requested character.
     const NSPoint baseline = [clientData[@"IMKBaseline"] pointValue];
 
-    int candidate_left = baseline.x;
-    if (output.live_conversion()) {
-      if (!hasLiveConversionAnchorLeft_) {
-        liveConversionAnchorLeft_ = baseline.x;
-        hasLiveConversionAnchorLeft_ = true;
-      }
-      candidate_left = liveConversionAnchorLeft_;
-    }
-
     SetRendererRectangle(
-        preeditRect, NSMakePoint(candidate_left, baseline.y),
+        preeditRect, baseline,
         rendererCommand_.mutable_preedit_rectangle());
-
-    rendererCommand_.clear_ruby_preedit_rectangle();
-
-    if (output.live_conversion()) {
-      if (position == 0) {
-        rendererCommand_.mutable_ruby_preedit_rectangle()->CopyFrom(
-            rendererCommand_.preedit_rectangle());
-      } else {
-        // A passive suggestion may be anchored partway through the
-        // composition. Ruby represents the reading of the entire preedit and
-        // therefore needs the geometry of character index zero.
-        NSRect rubyPreeditRect = NSZeroRect;
-        NSDictionary *rubyClientData =
-            [[self client] attributesForCharacterIndex:0
-                                  lineHeightRectangle:&rubyPreeditRect];
-        const NSPoint rubyBaseline =
-            [rubyClientData[@"IMKBaseline"] pointValue];
-
-        SetRendererRectangle(
-            rubyPreeditRect, rubyBaseline,
-            rendererCommand_.mutable_ruby_preedit_rectangle());
-      }
-    }
 
   } @catch (NSException *exception) {
     LOG(ERROR) << "Exception from [" << clientBundle_ << "] " << [[exception name] UTF8String]
@@ -1029,12 +935,6 @@ NSString *TrimIncompleteZenzSurrogateEdges(NSString *text) {
 
 - (void)updateCandidates:(const Output *)output {
   if (output == nullptr) {
-    [self clearCandidates];
-    return;
-  }
-
-  if (ShouldSuppressCandidateWindowForLiveConversion(
-          *output, useLiveConversion_)) {
     [self clearCandidates];
     return;
   }

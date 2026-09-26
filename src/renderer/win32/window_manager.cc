@@ -132,13 +132,9 @@ WindowManager::WindowManager()
       cascading_window_(std::make_unique<CandidateWindow>()),
       indicator_window_(std::make_unique<IndicatorWindow>()),
       infolist_window_(std::make_unique<InfolistWindow>()),
-      ruby_window_(std::make_unique<RubyWindow>()),
       layout_manager_(std::make_unique<LayoutManager>()),
       send_command_interface_(nullptr),
       last_position_(kInvalidMousePosition),
-      last_live_conversion_passive_suggestion_visible_(false),
-      last_live_conversion_passive_suggestion_rect_(),
-      has_last_live_conversion_passive_suggestion_rect_(false),
       candidates_finger_print_(0),
       thread_id_(0) {}
 
@@ -156,30 +152,21 @@ void WindowManager::Initialize() {
   indicator_window_->Initialize();
   infolist_window_->Create(nullptr);
   infolist_window_->ShowWindow(SW_HIDE);
-  ruby_window_->Initialize();
 }
 
 void WindowManager::AsyncHideAllWindows() {
-  last_live_conversion_passive_suggestion_visible_ = false;
-  has_last_live_conversion_passive_suggestion_rect_ = false;
   cascading_window_->ShowWindowAsync(SW_HIDE);
   main_window_->ShowWindowAsync(SW_HIDE);
   infolist_window_->ShowWindowAsync(SW_HIDE);
-  ruby_window_->Hide();
 }
 
 void WindowManager::AsyncQuitAllWindows() {
-  last_live_conversion_passive_suggestion_visible_ = false;
-  has_last_live_conversion_passive_suggestion_rect_ = false;
   cascading_window_->PostMessage(WM_CLOSE, 0, 0);
   main_window_->PostMessage(WM_CLOSE, 0, 0);
   infolist_window_->PostMessage(WM_CLOSE, 0, 0);
-  ruby_window_->Destroy();
 }
 
 void WindowManager::DestroyAllWindows() {
-  last_live_conversion_passive_suggestion_visible_ = false;
-  has_last_live_conversion_passive_suggestion_rect_ = false;
   if (main_window_->IsWindow()) {
     main_window_->DestroyWindow();
   }
@@ -190,17 +177,13 @@ void WindowManager::DestroyAllWindows() {
   if (infolist_window_->IsWindow()) {
     infolist_window_->DestroyWindow();
   }
-  ruby_window_->Destroy();
 }
 
 void WindowManager::HideAllWindows() {
-  last_live_conversion_passive_suggestion_visible_ = false;
-  has_last_live_conversion_passive_suggestion_rect_ = false;
   main_window_->HideWithEffects();
   cascading_window_->HideWithEffects();
   indicator_window_->Hide();
   infolist_window_->DelayHide(0);
-  ruby_window_->Hide();
 }
 
 // TODO(yukawa): Refactor this method by making a new method in LayoutManager
@@ -211,68 +194,17 @@ void WindowManager::UpdateLayout(const commands::RendererCommand& command) {
 
   // Hide all UI elements if |command.visible()| is false.
   if (!command.visible()) {
-    last_live_conversion_passive_suggestion_visible_ = false;
-    has_last_live_conversion_passive_suggestion_rect_ = false;
     cascading_window_->HideWithEffects();
     main_window_->HideWithEffects();
     indicator_window_->Hide();
     infolist_window_->DelayHide(0);
-    ruby_window_->Hide();
-    return;
+      return;
   }
 
   // We assume |output| exists in the renderer command
   // for all |RendererCommand::UPDATE| renderer messages.
   DCHECK(command.has_output());
   const commands::Output& output = command.output();
-
-  // Live conversion normally uses only the ruby overlay and should keep the
-  // ordinary candidate windows hidden.  However, Mozkey may attach a passive
-  // SUGGESTION candidate_window to live-conversion output so users can see
-  // suggestions while preserving Space/Down as normal conversion operations.
-  // In that case, do not return here; let the normal candidate-window path draw
-  // the non-focused suggestion window alongside the ruby overlay.
-  const bool has_passive_suggestion_window =
-      output.has_candidate_window() && output.candidate_window().has_category() &&
-      output.candidate_window().category() == commands::SUGGESTION &&
-      output.candidate_window().candidate_size() > 0 &&
-      HasRenderableCandidateMainText(output.candidate_window()) &&
-      !output.candidate_window().has_focused_index();
-  const bool is_live_conversion_passive_suggestion =
-      output.live_conversion() && has_passive_suggestion_window;
-  const bool should_keep_previous_live_conversion_passive_suggestion =
-      output.live_conversion() && !is_live_conversion_passive_suggestion &&
-      last_live_conversion_passive_suggestion_visible_ &&
-      (output.zenz_live_correction_pending() ||
-       output.zenz_live_correction_applied() ||
-       output.has_zenz_live_correction_debug());
-
-  const bool should_defer_ruby_update =
-      is_live_conversion_passive_suggestion;
-  const RECT* ruby_avoid_rect = nullptr;
-  if (should_keep_previous_live_conversion_passive_suggestion &&
-      has_last_live_conversion_passive_suggestion_rect_) {
-    ruby_avoid_rect = &last_live_conversion_passive_suggestion_rect_;
-  }
-  if (!should_defer_ruby_update) {
-    ruby_window_->OnUpdate(command, *layout_manager_, ruby_avoid_rect);
-  }
-
-  if (output.live_conversion() && !is_live_conversion_passive_suggestion) {
-    cascading_window_->HideWithEffects();
-    if (!should_keep_previous_live_conversion_passive_suggestion) {
-      main_window_->HideWithEffects();
-      last_live_conversion_passive_suggestion_visible_ = false;
-      has_last_live_conversion_passive_suggestion_rect_ = false;
-    }
-    indicator_window_->Hide();
-    infolist_window_->DelayHide(0);
-    return;
-  }
-  if (!output.live_conversion()) {
-    last_live_conversion_passive_suggestion_visible_ = false;
-    has_last_live_conversion_passive_suggestion_rect_ = false;
-  }
 
   // We assume |application_info| exists in the renderer command
   // for all |RendererCommand::UPDATE| renderer messages.
@@ -286,9 +218,8 @@ void WindowManager::UpdateLayout(const commands::RendererCommand& command) {
       ((app_info.ui_visibilities() & ApplicationInfo::ShowCandidateWindow) ==
        ApplicationInfo::ShowCandidateWindow);
   bool show_suggest =
-      is_live_conversion_passive_suggestion ||
-      ((app_info.ui_visibilities() & ApplicationInfo::ShowSuggestWindow) ==
-       ApplicationInfo::ShowSuggestWindow);
+      (app_info.ui_visibilities() & ApplicationInfo::ShowSuggestWindow) ==
+      ApplicationInfo::ShowSuggestWindow;
 
   CandidateWindowLayout candidate_layout;
 
@@ -360,11 +291,6 @@ void WindowManager::UpdateLayout(const commands::RendererCommand& command) {
     cascading_window_->HideWithEffects();
     main_window_->HideWithEffects();
     infolist_window_->DelayHide(0);
-    last_live_conversion_passive_suggestion_visible_ = false;
-    has_last_live_conversion_passive_suggestion_rect_ = false;
-    if (should_defer_ruby_update) {
-      ruby_window_->OnUpdate(command, *layout_manager_);
-    }
     return;
   }
 
@@ -454,26 +380,6 @@ void WindowManager::UpdateLayout(const commands::RendererCommand& command) {
             main_window_zero_point, working_area, vertical);
   }
 
-  RECT next_live_conversion_passive_suggestion_rect = {};
-  if (should_defer_ruby_update) {
-    next_live_conversion_passive_suggestion_rect = ToWinRect(main_window_rect);
-
-    // If the passive suggestion flips across the preedit line, the old
-    // suggestion window can still occupy the side where ruby should stay.
-    // Hide the old passive suggestion first and keep ruby visible instead of
-    // expanding ruby's avoidance area to old+new rectangles.
-    if (last_live_conversion_passive_suggestion_visible_ &&
-        has_last_live_conversion_passive_suggestion_rect_ &&
-        IsOppositeSideOfPreedit(
-            last_live_conversion_passive_suggestion_rect_,
-            next_live_conversion_passive_suggestion_rect,
-            preedit_rect_for_transition, vertical)) {
-      main_window_->HideWithEffects();
-    }
-    ruby_window_->OnUpdate(command, *layout_manager_,
-                           &next_live_conversion_passive_suggestion_rect);
-  }
-
   const DWORD set_windows_pos_flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
   main_window_->SetWindowPos(HWND_TOPMOST, main_window_rect.Left(),
                              main_window_rect.Top(), main_window_rect.Width(),
@@ -490,17 +396,8 @@ void WindowManager::UpdateLayout(const commands::RendererCommand& command) {
   const HWND main_window_handle = main_window_->GetWindowHandle();
   infolist_window_->SetShadowZOrderAnchor(main_window_handle);
   cascading_window_->SetShadowZOrderAnchor(main_window_handle);
-  // Ruby can be updated before the main candidate window. Reassert it now so
-  // main_window_ is the lowest visible renderer body before any secondary
-  // shadow is presented.
-  ruby_window_->RaiseToTopmostWithoutActivation();
 
-  if (is_live_conversion_passive_suggestion) {
-    last_live_conversion_passive_suggestion_visible_ = true;
-    last_live_conversion_passive_suggestion_rect_ =
-        next_live_conversion_passive_suggestion_rect;
-    has_last_live_conversion_passive_suggestion_rect_ = true;
-  }
+
   // This trick ensures that the window is certainly shown as 'inactivated'
   // in terms of visual effect on DWM-enabled desktop.
   main_window_->SendMessageW(WM_NCACTIVATE, FALSE);

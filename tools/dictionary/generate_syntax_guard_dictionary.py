@@ -154,10 +154,9 @@ DIRECT_FIXED_GUARDS = (
 
 # Direct kana entries for completed expressive words.
 #
-# These entries are intentionally dictionary candidates, not session-level
-# live-conversion suppressors.  This lets the default output rescue natural
-# hiragana forms while still allowing user history / user dictionary entries
-# such as ウッソ, クッソ, ヤッバ, etc. to win after explicit selection.
+# These entries are ordinary dictionary candidates.  This lets the default
+# output rescue natural hiragana forms while still allowing user history / user
+# dictionary entries such as ウッソ, クッソ, ヤッバ, etc. to win after selection.
 #
 # Use conservative costs close to the existing hiragana mimetic rescue entries:
 # cheap enough to beat pathological kanji segmentation, but not so cheap that

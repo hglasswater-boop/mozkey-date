@@ -1,4 +1,4 @@
-#include "session/zenz_live_corrector.h"
+#include "session/zenz_conversion_service.h"
 
 #include <utility>
 
@@ -7,24 +7,24 @@
 namespace mozc {
 namespace session {
 
-ZenzLiveCorrector::ZenzLiveCorrector(std::unique_ptr<ZenzClient> client)
+ZenzConversionService::ZenzConversionService(std::unique_ptr<ZenzClient> client)
     : client_(std::move(client)) {}
 
-ZenzLiveCorrector::~ZenzLiveCorrector() {
+ZenzConversionService::~ZenzConversionService() {
   Stop();
 }
 
-void ZenzLiveCorrector::Start() {
+void ZenzConversionService::Start() {
   std::lock_guard<std::mutex> lock(mu_);
   if (started_) {
     return;
   }
   stop_ = false;
   started_ = true;
-  worker_ = std::thread(&ZenzLiveCorrector::WorkerLoop, this);
+  worker_ = std::thread(&ZenzConversionService::WorkerLoop, this);
 }
 
-void ZenzLiveCorrector::Stop() {
+void ZenzConversionService::Stop() {
   {
     std::lock_guard<std::mutex> lock(mu_);
     if (!started_) {
@@ -44,7 +44,7 @@ void ZenzLiveCorrector::Stop() {
   started_ = false;
 }
 
-void ZenzLiveCorrector::Submit(ZenzLiveRequest request) {
+void ZenzConversionService::Submit(ZenzConversionRequest request) {
   Start();
 
   {
@@ -55,13 +55,13 @@ void ZenzLiveCorrector::Submit(ZenzLiveRequest request) {
   cv_.notify_one();
 }
 
-void ZenzLiveCorrector::CancelPending() {
+void ZenzConversionService::CancelPending() {
   std::lock_guard<std::mutex> lock(mu_);
   latest_request_.reset();
   latest_result_.reset();
 }
 
-std::optional<ZenzLiveResponse> ZenzLiveCorrector::TakeResult(
+std::optional<ZenzConversionResponse> ZenzConversionService::TakeResult(
     uint32_t generation) {
   std::lock_guard<std::mutex> lock(mu_);
   if (!latest_result_.has_value()) {
@@ -72,14 +72,14 @@ std::optional<ZenzLiveResponse> ZenzLiveCorrector::TakeResult(
     return std::nullopt;
   }
 
-  std::optional<ZenzLiveResponse> result = std::move(latest_result_);
+  std::optional<ZenzConversionResponse> result = std::move(latest_result_);
   latest_result_.reset();
   return result;
 }
 
-void ZenzLiveCorrector::WorkerLoop() {
+void ZenzConversionService::WorkerLoop() {
   while (true) {
-    std::optional<ZenzLiveRequest> request;
+    std::optional<ZenzConversionRequest> request;
 
     {
       std::unique_lock<std::mutex> lock(mu_);
@@ -99,7 +99,7 @@ void ZenzLiveCorrector::WorkerLoop() {
       continue;
     }
 
-    ZenzLiveResponse response;
+    ZenzConversionResponse response;
     response.generation = request->generation;
     response.key = request->key;
 

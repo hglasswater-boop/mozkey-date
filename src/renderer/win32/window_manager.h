@@ -39,7 +39,6 @@
 #include "renderer/win32/candidate_window.h"
 #include "renderer/win32/indicator_window.h"
 #include "renderer/win32/infolist_window.h"
-#include "renderer/win32/ruby_window.h"
 #include "renderer/win32/win32_renderer_util.h"
 
 namespace mozc {
@@ -69,17 +68,9 @@ class WindowManager {
   std::unique_ptr<CandidateWindow> cascading_window_;
   std::unique_ptr<IndicatorWindow> indicator_window_;
   std::unique_ptr<InfolistWindow> infolist_window_;
-  std::unique_ptr<RubyWindow> ruby_window_;
   std::unique_ptr<LayoutManager> layout_manager_;
   client::SendCommandInterface* send_command_interface_;
   POINT last_position_;
-  // True while the last visible candidate window was a passive suggestion
-  // attached to live conversion.  Zenz callbacks may redraw live conversion
-  // without candidate_window; in that case the renderer can keep the existing
-  // passive suggestion window visible instead of hiding it.
-  bool last_live_conversion_passive_suggestion_visible_;
-  RECT last_live_conversion_passive_suggestion_rect_;
-  bool has_last_live_conversion_passive_suggestion_rect_;
   int candidates_finger_print_;
   DWORD thread_id_;
 };

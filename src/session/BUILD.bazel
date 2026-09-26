@@ -153,7 +153,7 @@ mozc_cc_library(
     srcs = [
         "session.cc",
         "zenz_client_factory.cc",
-        "zenz_live_corrector.cc",
+        "zenz_conversion_service.cc",
         "zenz_named_pipe_client.cc",
         "zenz_output_validator.cc",
         "zenz_unix_socket_client.cc",
@@ -161,7 +161,7 @@ mozc_cc_library(
     hdrs = [
         "session.h",
         "zenz_client_factory.h",
-        "zenz_live_corrector.h",
+        "zenz_conversion_service.h",
         "zenz_named_pipe_client.h",
         "zenz_output_validator.h",
         "zenz_unix_socket_client.h",

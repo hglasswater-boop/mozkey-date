@@ -8,7 +8,7 @@ namespace session {
 
 class ZenzClient;
 
-// Creates the platform transport used by ZenzLiveCorrector.
+// Creates the platform transport used by ZenzConversionService.
 //
 // This factory keeps Session independent from concrete IPC transports.  The
 // Windows uses the existing named-pipe client. macOS uses a local Unix-domain

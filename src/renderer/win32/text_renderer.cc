@@ -67,7 +67,6 @@ namespace {
   constexpr size_t kShortcutTextStyleIndex = 0;
   constexpr size_t kCandidateTextStyleIndex = 2;
   constexpr size_t kDescriptionTextStyleIndex = 3;
-  constexpr int kRubyFontPointSize = 13;
 
   CRect ToCRect(const Rect& rect) {
     return CRect(rect.Left(), rect.Top(), rect.Right(), rect.Bottom());
@@ -129,10 +128,6 @@ namespace {
       case TextRenderer::FONTSET_INFOLIST_DESCRIPTION:
         return ToColorRef(
             style.infolist_style().description_style().foreground_color());
-
-      case TextRenderer::FONTSET_RUBY:
-        return ToColorRef(
-            RendererStyleHandler::GetRubyWindowStyle().text_color);
 
       default:
         LOG(DFATAL) << "Unknown type: " << type;
@@ -315,21 +310,6 @@ namespace {
         font.lfWeight = FW_NORMAL;
         return font;
 
-      case TextRenderer::FONTSET_RUBY: {
-        const RendererStyleHandler::RubyWindowStyle ruby_style =
-            RendererStyleHandler::GetRubyWindowStyle();
-        const int point_size = std::max(
-            1, static_cast<int>(std::lround(
-                   static_cast<double>(kRubyFontPointSize) *
-                   static_cast<double>(ruby_style.size_percent) / 100.0)));
-        font.lfHeight = -MulDiv(point_size, dpi, 72);
-        ApplyFontNameFromTextStyle(
-            GetTextStyleOrNull(style, kCandidateTextStyleIndex), &font);
-        font.lfWeight = std::clamp(
-            static_cast<int>(ruby_style.font_weight),
-            static_cast<int>(FW_THIN), static_cast<int>(FW_HEAVY));
-        return font;
-      }
 
       default:
         LOG(DFATAL) << "Unknown type: " << type;
@@ -358,8 +338,6 @@ DWORD GetGdiDrawTextStyle(TextRenderer::FONT_TYPE type) {
              DT_NOPREFIX;
     case TextRenderer::FONTSET_INFOLIST_DESCRIPTION:
       return DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX;
-    case TextRenderer::FONTSET_RUBY:
-      return DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
     default:
       LOG(DFATAL) << "Unknown type: " << type;
       return 0;

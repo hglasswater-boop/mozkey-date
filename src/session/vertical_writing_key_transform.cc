@@ -147,7 +147,7 @@ bool TransformVerticalWritingCandidateArrowKey(
   if (state == VerticalWritingKeyState::kSuggestion) {
     // A suggestion is not focused yet. Left is the visual "enter candidates /
     // advance leftward" operation in vertical writing. Reuse the existing Down
-    // binding so PredictAndConvert keeps all current live-conversion behavior.
+    // binding so PredictAndConvert keeps its current suggestion behavior.
     if (!IsPlainSpecialKey(*key, commands::KeyEvent::LEFT)) {
       return false;
     }

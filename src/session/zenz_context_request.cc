@@ -23,23 +23,23 @@ ZenzContextRequest GetZenzContextRequest(
   ZenzContextRequest request;
 
   if (!may_snapshot_client_context ||
-      !config.use_live_conversion() ||
-      !config.use_zenz_live_correction() ||
+      !config.use_zenz_conversion() ||
+      !config.use_zenz_context() ||
       input_field_type == commands::Context::PASSWORD) {
     return request;
   }
 
   const uint32_t configured_preceding_length =
-      config.zenz_live_correction_left_context_length();
+      config.zenz_context_left_length();
   request.preceding_length =
       std::min(configured_preceding_length, kMaxAcquisitionLength);
 
-  if (!config.use_zenz_live_correction_right_context()) {
+  if (!config.use_zenz_right_context()) {
     return request;
   }
 
   const uint32_t configured_following_length =
-      config.zenz_live_correction_right_context_length();
+      config.zenz_context_right_length();
   request.following_length =
       std::min(configured_following_length, kMaxAcquisitionLength);
 

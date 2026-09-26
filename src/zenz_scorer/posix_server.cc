@@ -41,10 +41,9 @@ using ::mozc::zenz::ZenzWireResponseHeader;
 
 constexpr uint32_t kMaxPromptBytes = 8192;
 constexpr uint32_t kMaxOutputChars = 256;
-// Production live-conversion requests normally carry their own much shorter
-// deadline. This is only the defensive upper ceiling accepted by the local
-// scorer, and must also permit bounded package/runtime verification on slower
-// supported hosts.
+// Normal-conversion requests use a bounded deadline so candidate display
+// remains responsive. This is the defensive upper ceiling accepted by the
+// local scorer and also permits runtime verification on slower supported hosts.
 constexpr uint32_t kMaxRequestTimeoutMsec = 30000;
 constexpr uint32_t kMaxResponseValueBytes = 1024 * 1024;
 constexpr uint32_t kMaxResponseDebugBytes = 64 * 1024;

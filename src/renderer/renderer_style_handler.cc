@@ -103,29 +103,6 @@ void ScaleTextStyle(RendererStyle::TextStyle* style, uint32_t percent) {
   }
 }
 
-RendererStyleHandler::RubyWindowStyle RubyStyleFromRendererStyle(
-    const RendererStyle& style) {
-  RendererStyleHandler::RubyWindowStyle ruby_style;
-  if (style.has_border_color()) {
-    ruby_style.border_color =
-        ToRgb(style.border_color(), ruby_style.border_color);
-  }
-  if (style.candidate_style().has_background_color()) {
-    ruby_style.background_color =
-        ToRgb(style.candidate_style().background_color(),
-              ruby_style.background_color);
-  }
-  if (style.candidate_style().has_foreground_color()) {
-    ruby_style.text_color = ToRgb(style.candidate_style().foreground_color(),
-                                  ruby_style.text_color);
-  }
-  if (style.candidate_style().has_font_weight()) {
-    ruby_style.font_weight = static_cast<uint32_t>(std::clamp(
-        style.candidate_style().font_weight(), 100, 900));
-  }
-  return ruby_style;
-}
-
 void ApplyLightCandidateWindowTheme(RendererStyle* style) {
   SetColor(style->mutable_border_color(), 0x96, 0x96, 0x96);
 
@@ -262,7 +239,6 @@ class RendererStyleHandlerImpl {
   bool SetRendererStyle(const RendererStyle& style);
   bool SetRendererWindowStyles(
       const RendererStyle& candidate_style, const RendererStyle& suggestion_style,
-      const RendererStyleHandler::RubyWindowStyle& ruby_style,
       uint32_t candidate_corner_radius, uint32_t suggestion_corner_radius,
       const RendererStyleHandler::CandidateWindowEffectStyle&
           candidate_effect_style,
@@ -274,12 +250,10 @@ class RendererStyleHandlerImpl {
   RendererStyleHandler::CandidateWindowEffectStyle
   GetCandidateWindowEffectStyle(
       RendererStyleHandler::RendererStyleType type) const;
-  RendererStyleHandler::RubyWindowStyle GetRubyWindowStyle() const;
 
  private:
   RendererStyle candidate_style_;
   RendererStyle suggestion_style_;
-  RendererStyleHandler::RubyWindowStyle ruby_style_;
   uint32_t candidate_corner_radius_ = 6;
   uint32_t suggestion_corner_radius_ = 6;
   RendererStyleHandler::CandidateWindowEffectStyle candidate_effect_style_;
@@ -294,7 +268,6 @@ RendererStyleHandlerImpl* GetRendererStyleHandlerImpl() {
 RendererStyleHandlerImpl::RendererStyleHandlerImpl() {
   GetDefaultRendererStyle(&candidate_style_);
   suggestion_style_ = candidate_style_;
-  ruby_style_ = RubyStyleFromRendererStyle(candidate_style_);
 }
 
 bool RendererStyleHandlerImpl::GetRendererStyle(RendererStyle* style) {
@@ -324,7 +297,6 @@ bool RendererStyleHandlerImpl::GetRendererStyleForWindowType(
 bool RendererStyleHandlerImpl::SetRendererStyle(const RendererStyle& style) {
   candidate_style_ = style;
   suggestion_style_ = style;
-  ruby_style_ = RubyStyleFromRendererStyle(style);
   candidate_corner_radius_ = 6;
   suggestion_corner_radius_ = 6;
   candidate_effect_style_ = RendererStyleHandler::CandidateWindowEffectStyle();
@@ -334,7 +306,6 @@ bool RendererStyleHandlerImpl::SetRendererStyle(const RendererStyle& style) {
 
 bool RendererStyleHandlerImpl::SetRendererWindowStyles(
     const RendererStyle& candidate_style, const RendererStyle& suggestion_style,
-    const RendererStyleHandler::RubyWindowStyle& ruby_style,
     uint32_t candidate_corner_radius, uint32_t suggestion_corner_radius,
     const RendererStyleHandler::CandidateWindowEffectStyle&
         candidate_effect_style,
@@ -342,7 +313,6 @@ bool RendererStyleHandlerImpl::SetRendererWindowStyles(
         suggestion_effect_style) {
   candidate_style_ = candidate_style;
   suggestion_style_ = suggestion_style;
-  ruby_style_ = ruby_style;
   candidate_corner_radius_ = candidate_corner_radius;
   suggestion_corner_radius_ = suggestion_corner_radius;
   candidate_effect_style_ = candidate_effect_style;
@@ -381,11 +351,6 @@ RendererStyleHandlerImpl::GetCandidateWindowEffectStyle(
   return candidate_effect_style_;
 }
 
-RendererStyleHandler::RubyWindowStyle
-RendererStyleHandlerImpl::GetRubyWindowStyle() const {
-  return ruby_style_;
-}
-
 }  // namespace
 
 bool RendererStyleHandler::GetRendererStyle(RendererStyle* style) {
@@ -414,12 +379,11 @@ bool RendererStyleHandler::GetRendererStyleForWindowType(
 
 bool RendererStyleHandler::SetRendererWindowStyles(
     const RendererStyle& candidate_style, const RendererStyle& suggestion_style,
-    const RubyWindowStyle& ruby_style, uint32_t candidate_corner_radius,
-    uint32_t suggestion_corner_radius,
+    uint32_t candidate_corner_radius, uint32_t suggestion_corner_radius,
     const CandidateWindowEffectStyle& candidate_effect_style,
     const CandidateWindowEffectStyle& suggestion_effect_style) {
   return GetRendererStyleHandlerImpl()->SetRendererWindowStyles(
-      candidate_style, suggestion_style, ruby_style, candidate_corner_radius,
+      candidate_style, suggestion_style, candidate_corner_radius,
       suggestion_corner_radius, candidate_effect_style, suggestion_effect_style);
 }
 
@@ -431,10 +395,6 @@ uint32_t RendererStyleHandler::GetCandidateWindowCornerRadius(
 RendererStyleHandler::CandidateWindowEffectStyle
 RendererStyleHandler::GetCandidateWindowEffectStyle(RendererStyleType type) {
   return GetRendererStyleHandlerImpl()->GetCandidateWindowEffectStyle(type);
-}
-
-RendererStyleHandler::RubyWindowStyle RendererStyleHandler::GetRubyWindowStyle() {
-  return GetRendererStyleHandlerImpl()->GetRubyWindowStyle();
 }
 
 void RendererStyleHandler::GetDefaultRendererStyle(RendererStyle* style) {
@@ -550,7 +510,7 @@ void RendererStyleHandler::ApplyCandidateWindowSize(uint32_t size_percent,
   ScaleTextStyle(infostyle->mutable_description_style(), size_percent);
 }
 
-void RendererStyleHandler::ApplyCandidateRubyFont(
+void RendererStyleHandler::ApplyCandidateFont(
     const std::string& font_name, RendererStyle* style) {
   if (style == nullptr || font_name.empty()) {
     return;

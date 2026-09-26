@@ -93,27 +93,6 @@ class WindowUtil {
                                               const Point& zero_point_offset,
                                               const Rect& working_area);
 
-  // Returns a ruby-window rectangle that stays inside |working_area| and
-  // does not intersect |avoid_rect|. Placement above the preedit is preferred;
-  // below is used as the fallback. Returns false if neither side is usable.
-  static bool GetRubyWindowRect(const Rect& preedit_rect,
-                                const Size& window_size, int gap,
-                                const Rect& working_area,
-                                const Rect* avoid_rect,
-                                Rect* window_rect);
-
-  // Returns a vertical-writing ruby rectangle around the horizontally occupied
-  // span of the active composition. |composition_span.Left()/Right()| are the
-  // outermost observed composition-column edges and |composition_span.Top()|
-  // is the current text anchor. |text_top_offset| is the vertical inset from
-  // the ruby window edge to its first text glyph. Japanese vertical ruby is
-  // placed outside the right edge first and outside the left edge as fallback.
-  // This keeps ruby outside a composition that wraps into columns to the left.
-  static bool GetRubyWindowRectForVerticalWriting(
-      const Rect& composition_span, const Size& window_size,
-      int text_top_offset, int gap, const Rect& working_area,
-      const Rect* avoid_rect, Rect* window_rect);
-
   // Returns the appropriate infolist window position in the screen
   // coordinate.  |window_size| is the size of the infolist window.
   // |candidate_rect| is the rect of the candidate window.

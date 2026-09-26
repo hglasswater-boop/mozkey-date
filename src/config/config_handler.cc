@@ -41,6 +41,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_format.h"
+#include "google/protobuf/unknown_field_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
@@ -107,9 +108,6 @@ void InitializeDateConversionFormats(Config* config) {
 // newer fields, and "Reset to defaults" all resolve to the same values without
 // overwriting explicit user choices.
 void ApplyMozkeyProductDefaults(Config* config) {
-  if (!config->has_use_live_conversion()) {
-    config->set_use_live_conversion(true);
-  }
   if (!config->has_show_candidate_window_on_initial_conversion()) {
     config->set_show_candidate_window_on_initial_conversion(true);
   }
@@ -119,17 +117,141 @@ void ApplyMozkeyProductDefaults(Config* config) {
   if (!config->has_direct_commit_key()) {
     config->set_direct_commit_key(kMozkeyDefaultDirectCommitKey);
   }
-  if (!config->has_use_zenz_live_correction()) {
-    config->set_use_zenz_live_correction(true);
+  if (!config->has_use_zenz_conversion()) {
+    config->set_use_zenz_conversion(true);
   }
   if (!config->has_use_zenz_feedback_learning()) {
     config->set_use_zenz_feedback_learning(true);
   }
-  if (!config->has_use_zenz_live_correction_right_context()) {
-    config->set_use_zenz_live_correction_right_context(true);
+  if (!config->has_use_zenz_context()) {
+    config->set_use_zenz_context(true);
+  }
+  if (!config->has_use_zenz_right_context()) {
+    config->set_use_zenz_right_context(true);
   }
   if (!config->has_use_realtime_conversion()) {
     config->set_use_realtime_conversion(false);
+  }
+}
+
+const google::protobuf::UnknownField* FindUnknownField(
+    const google::protobuf::UnknownFieldSet& fields, const int number) {
+  for (int i = 0; i < fields.field_count(); ++i) {
+    if (fields.field(i).number() == number) {
+      return &fields.field(i);
+    }
+  }
+  return nullptr;
+}
+
+// Configs written before normal-conversion Zenz settings existed retain the
+// retired protobuf fields as unknown data. Move reusable preferences forward
+// once, then remove those old wire fields from the next serialized config.
+void MigrateLegacyZenzSettings(Config* config) {
+  google::protobuf::UnknownFieldSet* fields =
+      config->GetReflection()->MutableUnknownFields(config);
+  const google::protobuf::UnknownField* legacy_zenz_enabled_field =
+      FindUnknownField(*fields, 1003);
+  const bool legacy_zenz_enabled =
+      legacy_zenz_enabled_field != nullptr &&
+      legacy_zenz_enabled_field->type() ==
+          google::protobuf::UnknownField::TYPE_VARINT &&
+      legacy_zenz_enabled_field->varint() != 0;
+
+  auto migrate_bool = [fields](const int old_number, const bool has_new_value,
+                               const auto& setter) {
+    if (const auto* field = FindUnknownField(*fields, old_number);
+        field != nullptr && field->type() == google::protobuf::UnknownField::TYPE_VARINT) {
+      if (!has_new_value) {
+        setter(field->varint() != 0);
+      }
+    }
+    fields->DeleteByNumber(old_number);
+  };
+  auto migrate_uint32 = [fields](const int old_number, const bool has_new_value,
+                                 const auto& setter) {
+    if (const auto* field = FindUnknownField(*fields, old_number);
+        field != nullptr && field->type() == google::protobuf::UnknownField::TYPE_VARINT) {
+      if (!has_new_value) {
+        setter(static_cast<uint32_t>(field->varint()));
+      }
+    }
+    fields->DeleteByNumber(old_number);
+  };
+  auto migrate_string = [fields](const int old_number,
+                                 const bool has_new_value,
+                                 const auto& setter) {
+    if (const auto* field = FindUnknownField(*fields, old_number);
+        field != nullptr && field->type() == google::protobuf::UnknownField::TYPE_LENGTH_DELIMITED) {
+      if (!has_new_value) {
+        setter(field->length_delimited());
+      }
+    }
+    fields->DeleteByNumber(old_number);
+  };
+
+  migrate_bool(1003, config->has_use_zenz_conversion(),
+               [config](const bool value) {
+                 config->set_use_zenz_conversion(value);
+               });
+  migrate_uint32(1005, config->has_zenz_conversion_timeout_msec(),
+                 [config](const uint32_t value) {
+                   config->set_zenz_conversion_timeout_msec(value);
+                 });
+  migrate_uint32(1007, config->has_zenz_context_left_length(),
+                 [config](const uint32_t value) {
+                   config->set_zenz_context_left_length(value);
+                 });
+  migrate_bool(1008, config->has_allow_zenz_synthetic_candidate(),
+               [config](const bool value) {
+                 config->set_allow_zenz_synthetic_candidate(value);
+               });
+  migrate_string(1009, config->has_zenz_pipe_name(),
+                 [config](const std::string& value) {
+                   config->set_zenz_pipe_name(value);
+                 });
+  migrate_bool(1010, config->has_zenz_debug(),
+               [config](const bool value) { config->set_zenz_debug(value); });
+  migrate_string(1012, config->has_zenz_profile(),
+                 [config](const std::string& value) {
+                   config->set_zenz_profile(value);
+                 });
+  migrate_string(1013, config->has_zenz_topic(),
+                 [config](const std::string& value) {
+                   config->set_zenz_topic(value);
+                 });
+  migrate_string(1014, config->has_zenz_style(),
+                 [config](const std::string& value) {
+                   config->set_zenz_style(value);
+                 });
+  migrate_string(1015, config->has_zenz_settings(),
+                 [config](const std::string& value) {
+                   config->set_zenz_settings(value);
+                 });
+  migrate_bool(1016, config->has_use_zenz_right_context(),
+               [config](const bool value) {
+                 config->set_use_zenz_right_context(value);
+               });
+  migrate_uint32(1017, config->has_zenz_context_right_length(),
+                 [config](const uint32_t value) {
+                   config->set_zenz_context_right_length(value);
+                 });
+
+  // Context was always sent by the retired correction path. Preserve that
+  // preference for profiles which had explicitly enabled the old Zenz switch.
+  if (legacy_zenz_enabled && !config->has_use_zenz_context()) {
+    config->set_use_zenz_context(true);
+  }
+
+  // Strip persisted settings for removed live-conversion and ruby-window UI.
+  // Field 134 is deliberately retained because its old font preference now
+  // applies to candidate and suggestion windows.
+  constexpr int kRetiredConfigFieldNumbers[] = {
+      69,  70,  71,  1004, 1006, 135,  140,  141,  144,  147,
+      150, 159, 160, 161,  162,  1020, 1021, 1022, 1025,
+  };
+  for (const int number : kRetiredConfigFieldNumbers) {
+    fields->DeleteByNumber(number);
   }
 }
 
@@ -329,6 +451,8 @@ void ConfigHandlerImpl::Reload() {
     LOG(ERROR) << filename << " is broken";
     input_config->Clear();  // revert to default setting
   }
+
+  MigrateLegacyZenzSettings(input_config.get());
 
   // We set product defaults when the file is missing or broken, and migrate
   // the date-format list only while loading stored profile state. Keeping this

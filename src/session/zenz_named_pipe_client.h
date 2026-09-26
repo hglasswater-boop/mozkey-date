@@ -1,7 +1,7 @@
 #ifndef MOZC_SESSION_ZENZ_NAMED_PIPE_CLIENT_H_
 #define MOZC_SESSION_ZENZ_NAMED_PIPE_CLIENT_H_
 
-#include "session/zenz_live_corrector.h"
+#include "session/zenz_conversion_service.h"
 
 namespace mozc {
 namespace session {
@@ -12,7 +12,7 @@ class ZenzNamedPipeClient final : public ZenzClient {
   ~ZenzNamedPipeClient() override = default;
 
   bool IsAvailable() const override;
-  ZenzLiveResponse Convert(const ZenzLiveRequest& request) override;
+  ZenzConversionResponse Convert(const ZenzConversionRequest& request) override;
 };
 
 }  // namespace session

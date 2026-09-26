@@ -113,7 +113,7 @@ class ConverterInterface {
   }
 
   // Learns externally committed multi-segment conversion results, such as a
-  // Zenz accepted result safely projected onto Mozc live-conversion segments.
+  // Zenz accepted result safely projected onto Mozc conversion segments.
   // This represents one virtual conversion commit with phrase boundaries, not
   // multiple independent feedback-store records.
   [[nodiscard]]

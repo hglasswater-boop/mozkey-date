@@ -1,5 +1,5 @@
-#ifndef MOZC_SESSION_ZENZ_LIVE_CORRECTOR_H_
-#define MOZC_SESSION_ZENZ_LIVE_CORRECTOR_H_
+#ifndef MOZC_SESSION_ZENZ_CONVERSION_SERVICE_H_
+#define MOZC_SESSION_ZENZ_CONVERSION_SERVICE_H_
 
 #include <cstdint>
 #include <memory>
@@ -14,7 +14,7 @@
 namespace mozc {
 namespace session {
 
-struct ZenzLiveRequest {
+struct ZenzConversionRequest {
   uint32_t generation = 0;
 
   // Original Mozc reading, usually hiragana.
@@ -27,7 +27,7 @@ struct ZenzLiveRequest {
   std::string reading_katakana;
   std::string left_context;
 
-  // Current visible Mozc live conversion result.
+  // Standard Mozc candidate retained as the fallback result.
   std::string mozc_value;
 
   // Runtime options.
@@ -38,7 +38,7 @@ struct ZenzLiveRequest {
   absl::Time issued_at;
 };
 
-struct ZenzLiveResponse {
+struct ZenzConversionResponse {
   uint32_t generation = 0;
   std::string key;
   std::string value;
@@ -56,29 +56,29 @@ class ZenzClient {
 
   virtual bool IsAvailable() const = 0;
 
-  virtual ZenzLiveResponse Convert(const ZenzLiveRequest& request) = 0;
+  virtual ZenzConversionResponse Convert(const ZenzConversionRequest& request) = 0;
 };
 
-class ZenzLiveCorrector {
+class ZenzConversionService {
  public:
-  explicit ZenzLiveCorrector(std::unique_ptr<ZenzClient> client);
-  ~ZenzLiveCorrector();
+  explicit ZenzConversionService(std::unique_ptr<ZenzClient> client);
+  ~ZenzConversionService();
 
-  ZenzLiveCorrector(const ZenzLiveCorrector&) = delete;
-  ZenzLiveCorrector& operator=(const ZenzLiveCorrector&) = delete;
+  ZenzConversionService(const ZenzConversionService&) = delete;
+  ZenzConversionService& operator=(const ZenzConversionService&) = delete;
 
   void Start();
   void Stop();
 
   // Latest-only submission. A queued old request is overwritten.
-  void Submit(ZenzLiveRequest request);
+  void Submit(ZenzConversionRequest request);
 
   // Clears queued request/result. Running inference is not forcibly cancelled;
   // stale discard is handled by generation check.
   void CancelPending();
 
   // Returns the latest result only if its generation matches.
-  std::optional<ZenzLiveResponse> TakeResult(uint32_t generation);
+  std::optional<ZenzConversionResponse> TakeResult(uint32_t generation);
 
  private:
   void WorkerLoop();
@@ -91,8 +91,8 @@ class ZenzLiveCorrector {
   bool started_ = false;
   bool stop_ = false;
 
-  std::optional<ZenzLiveRequest> latest_request_;
-  std::optional<ZenzLiveResponse> latest_result_;
+  std::optional<ZenzConversionRequest> latest_request_;
+  std::optional<ZenzConversionResponse> latest_result_;
 
   std::thread worker_;
 };
@@ -100,4 +100,4 @@ class ZenzLiveCorrector {
 }  // namespace session
 }  // namespace mozc
 
-#endif  // MOZC_SESSION_ZENZ_LIVE_CORRECTOR_H_
+#endif  // MOZC_SESSION_ZENZ_CONVERSION_SERVICE_H_

@@ -126,10 +126,6 @@ bool NeedsRendererUpdateOnLayoutChange(TipTextService* text_service,
 
   const commands::Output& output = private_context->last_output();
 
-  if (output.live_conversion() && output.has_preedit()) {
-    return true;
-  }
-
   if (output.has_candidate_window() &&
       output.candidate_window().has_category()) {
     return true;

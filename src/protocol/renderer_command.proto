@@ -69,10 +69,8 @@ message RendererCommand {
   // Preedit rectangle used to position candidate and suggestion windows.
   optional Rectangle preedit_rectangle = 4;
 
-  // Mozkey macOS extension: composition-start rectangle used by the
-  // live-conversion ruby window. Keeping this separate prevents a suggestion's
-  // CandidateWindow::position from shifting the full-reading ruby overlay.
-  optional Rectangle ruby_preedit_rectangle = 1001;
+  // Reserved for the removed live-conversion ruby window.
+  reserved 1001;
 
   // An equivalent to IMECHARPOSITION in IMM32. (For Windows only)
   // TODO(yukawa): make a common candidate form format for all platforms.

@@ -121,49 +121,29 @@
     </message>
     <message>
         <location filename="config_dialog.ui" line="817"/>
-        <source>Use dark mode for candidate and ruby windows</source>
-        <translation></translation>
+        <source>Use dark mode for the candidate window</source>
+        <translation>Use dark mode for the candidate window</translation>
     </message>
     <message>
         <location filename="config_dialog.ui" line="0"/>
-        <source>Candidate/ruby font</source>
-        <translation></translation>
+        <source>Candidate and suggestion font</source>
+        <translation>Candidate and suggestion font</translation>
+    </message>
+
+
+
+    <message>
+        <location filename="config_dialog.ui" line="0"/>
+        <source>When converting from composition, show the candidate window without advancing to the next candidate.</source>
+        <translation>When converting from composition, show the candidate window without advancing to the next candidate.</translation>
     </message>
     <message>
         <location filename="config_dialog.ui" line="0"/>
-        <source>ライブ変換を開始する最小文字数です。1 にすると 1 文字目からライブ変換します。</source>
-        <translation>Minimum number of characters required before live conversion starts. Set to 1 to start live conversion from the first character.</translation>
+        <source>Show candidate window on first conversion action</source>
+        <translation>Show candidate window on first conversion action</translation>
     </message>
-    <message>
-        <location filename="config_dialog.ui" line="0"/>
-        <source>ライブ変換開始の最小文字数</source>
-        <translation>Minimum number of characters to start live conversion</translation>
-    </message>
-    <message>
-        <location filename="config_dialog.ui" line="0"/>
-        <source>ライブ変換を開始する最小文字数です。短くすると変換開始は早くなりますが、1 文字の助詞などが漢字化されやすくなります。</source>
-        <translation>Minimum number of characters required before live conversion starts. Lower values start conversion earlier, but single-character particles may be converted to kanji more eagerly.</translation>
-    </message>
-    <message>
-        <location filename="config_dialog.ui" line="0"/>
-        <source>When live conversion is off, the first conversion action opens the candidate window without advancing to the second candidate.</source>
-        <translation>When live conversion is off, the first conversion action opens the candidate window without advancing to the second candidate.</translation>
-    </message>
-    <message>
-        <location filename="config_dialog.ui" line="0"/>
-        <source>Open candidate window on first conversion action (live conversion off)</source>
-        <translation>Open candidate window on first conversion action (live conversion off)</translation>
-    </message>
-    <message>
-        <location filename="config_dialog.ui" line="0"/>
-        <source>Show ruby window during live conversion</source>
-        <translation></translation>
-    </message>
-    <message>
-        <location filename="config_dialog.ui" line="0"/>
-        <source>Shows the typed reading near the candidate window during live conversion.</source>
-        <translation></translation>
-    </message>
+
+
     <message>
         <location filename="config_dialog.cc" line="0"/>
         <source>Default</source>
@@ -849,13 +829,13 @@ The current Windows default IME override will be saved so it can be restored lat
 
     <message>
         <location filename="config_dialog.ui" line="0"/>
-        <source>ライブ変換</source>
-        <translation>Live conversion</translation>
+        <source>Zenz 通常変換・文脈設定</source>
+        <translation>Zenz normal conversion and context</translation>
     </message>
     <message>
         <location filename="config_dialog.ui" line="0"/>
-        <source>Zenz ライブ補正</source>
-        <translation>Zenz live correction</translation>
+        <source>Zenz 通常変換・文脈設定</source>
+        <translation>Zenz normal conversion and context</translation>
     </message>
     <message>
         <location filename="config_dialog.ui" line="0"/>
@@ -979,8 +959,8 @@ The current Windows default IME override will be saved so it can be restored lat
     </message>
     <message>
         <location filename="config_dialog.cc" line="1650"/>
-        <source>Candidate, suggestion, and ruby window appearance</source>
-        <translation>Candidate, suggestion, and ruby window appearance</translation>
+        <source>Candidate and suggestion window appearance</source>
+        <translation>Candidate and suggestion window appearance</translation>
     </message>
     <message>
         <location filename="config_dialog.cc" line="1651"/>
@@ -989,8 +969,8 @@ The current Windows default IME override will be saved so it can be restored lat
     </message>
     <message>
         <location filename="config_dialog.cc" line="1652"/>
-        <source>Reset candidate, suggestion, and ruby window appearance to defaults</source>
-        <translation>Reset candidate, suggestion, and ruby window appearance to defaults</translation>
+        <source>Reset candidate and suggestion window appearance to defaults</source>
+        <translation>Reset candidate and suggestion window appearance to defaults</translation>
     </message>
     <message>
         <location filename="config_dialog.cc" line="1653"/>
@@ -1022,11 +1002,7 @@ The current Windows default IME override will be saved so it can be restored lat
         <source>Suggestion window</source>
         <translation>Suggestion window</translation>
     </message>
-    <message>
-        <location filename="config_dialog.cc" line="1663"/>
-        <source>Ruby window</source>
-        <translation>Ruby window</translation>
-    </message>
+
     <message>
         <location filename="config_dialog.cc" line="1664"/>
         <source>Target</source>
@@ -1049,8 +1025,8 @@ The current Windows default IME override will be saved so it can be restored lat
     </message>
     <message>
         <location filename="config_dialog.cc" line="1669"/>
-        <source>Candidate, suggestion, and ruby font</source>
-        <translation>Candidate, suggestion, and ruby font</translation>
+        <source>Candidate and suggestion font</source>
+        <translation>Candidate and suggestion font</translation>
     </message>
     <message>
         <location filename="config_dialog.cc" line="2430"/>
@@ -1192,11 +1168,7 @@ The current Windows default IME override will be saved so it can be restored lat
         <source>Suggestion window custom colors</source>
         <translation>Suggestion window custom colors</translation>
     </message>
-    <message>
-        <location filename="config_dialog.cc" line="1688"/>
-        <source>Ruby window custom colors</source>
-        <translation>Ruby window custom colors</translation>
-    </message>
+
     <message>
         <location filename="config_dialog.cc" line="1689"/>
         <source>Choose window color</source>
@@ -1242,11 +1214,7 @@ The current Windows default IME override will be saved so it can be restored lat
         <source>Set shadow direction</source>
         <translation>Set shadow direction</translation>
     </message>
-    <message>
-        <location filename="config_dialog.cc" line="2526"/>
-        <source>Ruby window spacing and gap</source>
-        <translation>Ruby window spacing and gap</translation>
-    </message>
+
     <message>
         <location filename="config_dialog.cc" line="2555"/>
         <source>Horizontal padding</source>
@@ -1272,11 +1240,7 @@ The current Windows default IME override will be saved so it can be restored lat
         <source>Distance from input text</source>
         <translation>Distance from input text</translation>
     </message>
-    <message>
-        <location filename="config_dialog.cc" line="2564"/>
-        <source>Distance between the ruby window and the text being composed.</source>
-        <translation>Distance between the ruby window and the text being composed.</translation>
-    </message>
+
 </context>
 <context>
     <name>mozc::gui::GenericTableEditorDialog</name>

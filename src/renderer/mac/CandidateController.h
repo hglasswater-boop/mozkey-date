@@ -43,7 +43,6 @@ namespace renderer {
 namespace mac {
 class CandidateWindow;
 class InfolistWindow;
-class RubyWindow;
 
 // CandidateController implements the renderer interface for Mac.  For
 // the detailed information of renderer interface, see
@@ -63,7 +62,6 @@ class CandidateController : public RendererInterface {
  private:
   // Relocate windows to prevent overlaps.
   void AlignWindows();
-  bool AlignRubyWindow(const mozc::Rect *avoid_rect);
 
   // We don't use std::unique_ptr<> for those two pointers because we don't
   // want to include CandidateWindow.h when the user of this class
@@ -73,9 +71,6 @@ class CandidateController : public RendererInterface {
   CandidateWindow *candidate_window_;
   CandidateWindow *cascading_window_;
   InfolistWindow *infolist_window_;
-  RubyWindow *ruby_window_;
-  mozc::Rect candidate_rect_;
-  bool has_candidate_rect_ = false;
   mozc::commands::RendererCommand command_;
 };
 

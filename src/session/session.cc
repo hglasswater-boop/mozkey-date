@@ -186,1294 +186,18 @@ const size_t kMultipleUndoMaxSize = 10;
 // commits the restored hiragana preedit.
 constexpr size_t kMinRerankedPreeditCommitCharsAfterConvertCancel = 2;
 
-// Default live conversion debounce delay. The user-visible value is stored in
-// Config::live_conversion_delay_msec.
-constexpr uint32_t kDefaultLiveConversionDelayMillisec = 228;
-constexpr uint32_t kMaxLiveConversionDelayMillisec = 1000;
-
-// Default minimum composition length before live conversion is allowed.
-// Single-character input is often a particle such as 「に」「を」「が」,
-// and converting it to a kanji such as 「二」 too eagerly is noisy.
-// The value is user-configurable via Config::live_conversion_min_key_length.
-constexpr uint32_t kDefaultLiveConversionMinKeyLength = 2;
-constexpr uint32_t kMinLiveConversionMinKeyLength = 1;
-constexpr uint32_t kMaxLiveConversionMinKeyLength = 20;
-
-constexpr uint32_t kDefaultZenzLiveCorrectionDelayMsec = 1000;
-constexpr uint32_t kDefaultZenzLiveCorrectionTimeoutMsec = 180;
-constexpr uint32_t kDefaultZenzLiveCorrectionPollMsec = 24;
-constexpr uint32_t kDefaultZenzLiveCorrectionMinKeyLength = 2;
-constexpr uint32_t kMaxZenzLiveCorrectionRightContextLength = 128;
-constexpr uint32_t kMaxZenzLiveCorrectionDelayMsec = 5000;
-constexpr uint32_t kMaxZenzLiveCorrectionTimeoutMsec = 1000;
+constexpr uint32_t kDefaultZenzConversionTimeoutMsec = 1000;
+constexpr uint32_t kDefaultZenzConversionPollMsec = 24;
+constexpr uint32_t kMinimumZenzConversionKeyLength = 2;
+constexpr uint32_t kMaxZenzConversionRightContextLength = 128;
+constexpr uint32_t kMaxZenzConversionTimeoutMsec = 1000;
 
 // This is not the model inference timeout.  It is the maximum time the session
 // keeps polling the async worker after the request has been submitted.  Cold
 // start may include scorer process launch, pipe creation, llama-server startup,
 // ready probing, and then the actual completion request.  Since this path is
 // async, a longer poll window does not block the IME thread.
-constexpr uint32_t kZenzLiveCorrectionAsyncWaitMsec = 3000;
-
-bool IsLiveConversionTrailingDecorativeSymbol(char32_t c) {
-  switch (c) {
-    case 0x007E:  // ~
-    case 0xFF5E:  // ～
-    case 0x301C:  // 〜
-    case 0x30FC:  // ー
-    case 0x2015:  // ―
-    case 0x2025:  // ‥
-    case 0x2026:  // …
-    case 0x0021:  // !
-    case 0xFF01:  // ！
-    case 0x003F:  // ?
-    case 0xFF1F:  // ？
-    case 0x3002:  // 。
-    case 0x3001:  // 、
-    case 0x002C:  // ,
-    case 0xFF0C:  // ，
-    case 0x002E:  // .
-    case 0xFF0E:  // ．
-      return true;
-    default:
-      return false;
-  }
-}
-
-enum class LiveConversionLeftBoundary {
-  kKnownBoundary,
-  kKnownNonBoundary,
-  kUnknown,
-};
-
-struct LiveConversionAtom {
-  absl::string_view text;
-  bool is_entire_composition = false;
-  LiveConversionLeftBoundary left_boundary =
-      LiveConversionLeftBoundary::kUnknown;
-};
-
-bool ContainsStringView(std::initializer_list<absl::string_view> values,
-                        absl::string_view target) {
-  for (absl::string_view value : values) {
-    if (value == target) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool IsLiveConversionAtomBoundaryChar(char32_t c) {
-  switch (c) {
-    case 0x0009:  // tab
-    case 0x000A:  // LF
-    case 0x000D:  // CR
-    case 0x0020:  // space
-    case 0x3000:  // ideographic space
-    case 0x002C:  // ,
-    case 0xFF0C:  // ，
-    case 0x3001:  // 、
-    case 0x002E:  // .
-    case 0xFF0E:  // ．
-    case 0x3002:  // 。
-    case 0x0021:  // !
-    case 0xFF01:  // ！
-    case 0x003F:  // ?
-    case 0xFF1F:  // ？
-    case 0x2025:  // ‥
-    case 0x2026:  // …
-    case 0x003A:  // :
-    case 0xFF1A:  // ：
-    case 0x003B:  // ;
-    case 0xFF1B:  // ；
-    case 0x0028:  // (
-    case 0xFF08:  // （
-    case 0x005B:  // [
-    case 0x007B:  // {
-    case 0x300C:  // 「
-    case 0x300D:  // 」
-    case 0x300E:  // 『
-    case 0x300F:  // 』
-    case 0x3010:  // 【
-    case 0x3011:  // 】
-    case 0x3014:  // 〔
-    case 0x3015:  // 〕
-    case 0x201C:  // “
-    case 0x201D:  // ”
-    case 0x2018:  // ‘
-    case 0x2019:  // ’
-      return true;
-    default:
-      return false;
-  }
-}
-
-bool IsLiveConversionTrailingSentenceTailSymbol(char32_t c) {
-  switch (c) {
-    case 0x0009:  // tab
-    case 0x000A:  // LF
-    case 0x000D:  // CR
-    case 0x0020:  // space
-    case 0x3000:  // ideographic space
-    case 0x002C:  // ,
-    case 0xFF0C:  // ，
-    case 0x3001:  // 、
-    case 0x002E:  // .
-    case 0xFF0E:  // ．
-    case 0x3002:  // 。
-    case 0x0021:  // !
-    case 0xFF01:  // ！
-    case 0x003F:  // ?
-    case 0xFF1F:  // ？
-    case 0x2025:  // ‥
-    case 0x2026:  // …
-    case 0x003A:  // :
-    case 0xFF1A:  // ：
-    case 0x003B:  // ;
-    case 0xFF1B:  // ；
-    case 0x0029:  // )
-    case 0xFF09:  // ）
-    case 0x005D:  // ]
-    case 0x007D:  // }
-    case 0x300D:  // 」
-    case 0x300F:  // 』
-    case 0x3011:  // 】
-    case 0x3015:  // 〕
-    case 0x201D:  // ”
-    case 0x2019:  // ’
-      return true;
-    default:
-      return false;
-  }
-}
-
-bool IsLiveConversionProlongationMark(char32_t c) {
-  switch (c) {
-    case 0x007E:  // ~
-    case 0xFF5E:  // ～
-    case 0x301C:  // 〜
-    case 0x30FC:  // ー
-    case 0x2015:  // ―
-      return true;
-    default:
-      return false;
-  }
-}
-
-absl::string_view StripTrailingLiveConversionSentenceTail(
-    absl::string_view key) {
-  absl::string_view core = key;
-
-  while (!core.empty()) {
-    absl::string_view rest;
-    char32_t last = 0;
-    if (!Util::SplitLastChar32(core, &rest, &last)) {
-      break;
-    }
-    if (!IsLiveConversionTrailingSentenceTailSymbol(last)) {
-      break;
-    }
-    core = rest;
-  }
-
-  return core;
-}
-
-absl::string_view StripTrailingLiveConversionProlongationMarks(
-    absl::string_view key) {
-  absl::string_view core = key;
-
-  while (!core.empty()) {
-    absl::string_view rest;
-    char32_t last = 0;
-    if (!Util::SplitLastChar32(core, &rest, &last)) {
-      break;
-    }
-    if (!IsLiveConversionProlongationMark(last)) {
-      break;
-    }
-    core = rest;
-  }
-
-  return core;
-}
-
-LiveConversionLeftBoundary GetLiveConversionCommittedLeftBoundary(
-    const ImeContext& context) {
-  if (!context.client_context().has_preceding_text()) {
-    return LiveConversionLeftBoundary::kUnknown;
-  }
-
-  const std::string& preceding_text =
-      context.client_context().preceding_text();
-  if (preceding_text.empty()) {
-    return LiveConversionLeftBoundary::kKnownBoundary;
-  }
-
-  absl::string_view rest;
-  char32_t last = 0;
-  if (!Util::SplitLastChar32(preceding_text, &rest, &last)) {
-    return LiveConversionLeftBoundary::kUnknown;
-  }
-
-  return IsLiveConversionAtomBoundaryChar(last)
-             ? LiveConversionLeftBoundary::kKnownBoundary
-             : LiveConversionLeftBoundary::kKnownNonBoundary;
-}
-
-LiveConversionAtom ExtractTrailingLiveConversionAtom(
-    absl::string_view core,
-    LiveConversionLeftBoundary committed_left_boundary) {
-  LiveConversionAtom atom;
-  atom.text = core;
-  atom.is_entire_composition = true;
-  atom.left_boundary = committed_left_boundary;
-
-  absl::string_view cursor = core;
-  while (!cursor.empty()) {
-    absl::string_view rest;
-    char32_t last = 0;
-    if (!Util::SplitLastChar32(cursor, &rest, &last)) {
-      break;
-    }
-
-    if (IsLiveConversionAtomBoundaryChar(last)) {
-      atom.text =
-          absl::string_view(core.data() + cursor.size(),
-                            core.size() - cursor.size());
-      atom.is_entire_composition = false;
-      atom.left_boundary = LiveConversionLeftBoundary::kKnownBoundary;
-      return atom;
-    }
-
-    cursor = rest;
-  }
-
-  return atom;
-}
-
-bool IsStrongExpressiveKanaAtom(absl::string_view atom) {
-  return ContainsStringView(
-      {
-          "あっ",
-          "えっ",
-          "おっ",
-          "はっ",
-          "へっ",
-          "ちっ",
-          "ちぇっ",
-          "ほっ",
-          "いてっ",
-          "ぎゃっ",
-          "ひゃっ",
-      },
-      atom);
-}
-
-bool IsBoundarySensitiveExpressiveKanaCoreAtom(absl::string_view atom) {
-  return ContainsStringView(
-      {
-          "ふん",
-          "くそ",
-          "よう",
-          "ふむ",
-          "はて",
-          "ふう",
-          "ほう",
-          "ほい",
-          "ほいほい",
-          "へい",
-          "てへ",
-          "くちゃ",
-          "くちょ",
-          "ぐちょ",
-          "ぐちょぐちょ",
-          "どろどろ",
-          "つるつる",
-          "はいはい",
-          "うん",
-          "うんうん",
-          "そうそう",
-          "いやいや",
-          "まあまあ",
-      },
-      atom);
-}
-
-constexpr size_t kMaxRepeatedEInterjectionChars = 30;
-
-bool IsRepeatedEInterjectionAtom(absl::string_view atom) {
-  size_t count = 0;
-
-  for (absl::string_view c : Utf8AsChars(atom)) {
-    if (c != "え" && c != "ぇ") {
-      return false;
-    }
-    ++count;
-    if (count > kMaxRepeatedEInterjectionChars) {
-      return false;
-    }
-  }
-
-  return count >= 2;
-}
-
-bool IsHoFamilyExpressiveProsodyAtom(absl::string_view atom) {
-  return ContainsStringView(
-      {
-          "ほー",
-          "ほ〜",
-          "ほ～",
-          "ほお",
-          "ほほう",
-          "ほほお",
-          "ほほー",
-          "ほほ〜",
-          "ほほ～",
-          "ほほーん",
-          "ほほ〜ん",
-          "ほほ～ん",
-          "ほっほ",
-          "ほっほう",
-          "ほっほお",
-          "ほっほー",
-          "ほっほ〜",
-          "ほっほ～",
-          "ほっほーん",
-          "ほっほ〜ん",
-          "ほっほ～ん",
-      },
-      atom);
-}
-
-constexpr size_t kMaxExpressiveSokuonCount = 10;
-constexpr size_t kMaxEvaluativeSlangPrefixChars = 4;
-
-bool StripRepeatedExpressiveSokuonTail(absl::string_view atom,
-                                       absl::string_view* core) {
-  size_t sokuon_count = 0;
-  absl::string_view cursor = atom;
-
-  while (!cursor.empty()) {
-    absl::string_view rest;
-    char32_t last = 0;
-    if (!Util::SplitLastChar32(cursor, &rest, &last)) {
-      return false;
-    }
-
-    if (last != U'っ') {
-      break;
-    }
-
-    ++sokuon_count;
-    if (sokuon_count > kMaxExpressiveSokuonCount) {
-      return false;
-    }
-
-    cursor = rest;
-  }
-
-  if (sokuon_count == 0 || cursor.empty()) {
-    return false;
-  }
-
-  *core = cursor;
-  return true;
-}
-
-bool IsBoundarySensitiveExpressiveKanaAtom(absl::string_view atom) {
-  if (IsBoundarySensitiveExpressiveKanaCoreAtom(atom)) {
-    return true;
-  }
-
-  absl::string_view core;
-  if (!StripRepeatedExpressiveSokuonTail(atom, &core)) {
-    return false;
-  }
-
-  return IsBoundarySensitiveExpressiveKanaCoreAtom(core);
-}
-
-bool ConsumePrefixForLiveConversionMatcher(absl::string_view* text,
-                                           absl::string_view prefix) {
-  if (text->size() < prefix.size() ||
-      text->substr(0, prefix.size()) != prefix) {
-    return false;
-  }
-  *text = text->substr(prefix.size());
-  return true;
-}
-
-bool ConsumeAnyPrefixForLiveConversionMatcher(
-    absl::string_view* text,
-    std::initializer_list<absl::string_view> prefixes) {
-  for (absl::string_view prefix : prefixes) {
-    absl::string_view rest = *text;
-    if (ConsumePrefixForLiveConversionMatcher(&rest, prefix)) {
-      *text = rest;
-      return true;
-    }
-  }
-  return false;
-}
-
-bool IsOnlyLiveConversionProlongationMarks(absl::string_view text) {
-  if (text.empty()) {
-    return false;
-  }
-
-  while (!text.empty()) {
-    absl::string_view rest;
-    char32_t last = 0;
-    if (!Util::SplitLastChar32(text, &rest, &last)) {
-      return false;
-    }
-    if (!IsLiveConversionProlongationMark(last)) {
-      return false;
-    }
-    text = rest;
-  }
-
-  return true;
-}
-
-bool IsLiveConversionProlongationMarksWithOptionalN(
-    absl::string_view text) {
-  if (text == "ん") {
-    return true;
-  }
-
-  absl::string_view rest;
-  char32_t last = 0;
-  if (!Util::SplitLastChar32(text, &rest, &last)) {
-    return false;
-  }
-
-  return last == U'ん' && IsOnlyLiveConversionProlongationMarks(rest);
-}
-
-bool IsLiveConversionProlongationMarksWithOptionalI(
-    absl::string_view text) {
-  if (text == "い") {
-    return true;
-  }
-
-  absl::string_view rest;
-  char32_t last = 0;
-  if (!Util::SplitLastChar32(text, &rest, &last)) {
-    return false;
-  }
-
-  return last == U'い' && IsOnlyLiveConversionProlongationMarks(rest);
-}
-
-bool ConsumeRepeatedExpressiveSokuon(absl::string_view* text) {
-  size_t sokuon_count = 0;
-
-  while (ConsumePrefixForLiveConversionMatcher(text, "っ")) {
-    ++sokuon_count;
-    if (sokuon_count > kMaxExpressiveSokuonCount) {
-      return false;
-    }
-  }
-
-  return sokuon_count > 0;
-}
-
-bool MatchesSokuonEndingMimeticAtom(absl::string_view atom,
-                                    absl::string_view stem) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, stem)) {
-    return false;
-  }
-
-  if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-    return false;
-  }
-
-  if (rest.empty()) {
-    return true;
-  }
-
-  return IsOnlyLiveConversionProlongationMarks(rest);
-}
-
-bool IsSokuonEndingMimeticAtom(absl::string_view atom) {
-  return MatchesSokuonEndingMimeticAtom(atom, "しゃ") ||
-         MatchesSokuonEndingMimeticAtom(atom, "どろ") ||
-         MatchesSokuonEndingMimeticAtom(atom, "とろ") ||
-         MatchesSokuonEndingMimeticAtom(atom, "さわ") ||
-         MatchesSokuonEndingMimeticAtom(atom, "つる");
-}
-
-bool MatchesRepeatedSokuonPrefix(absl::string_view atom,
-                                 absl::string_view head) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, head)) {
-    return false;
-  }
-
-  if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-    return false;
-  }
-
-  return rest.empty();
-}
-
-constexpr size_t kMaxCasualGreetingProlongedTailChars = 30;
-
-bool IsLiveConversionProlongationMarkText(absl::string_view text) {
-  absl::string_view rest;
-  char32_t c = 0;
-  return Util::SplitLastChar32(text, &rest, &c) &&
-         rest.empty() &&
-         IsLiveConversionProlongationMark(c);
-}
-
-bool IsCasualGreetingProlongedTail(absl::string_view text) {
-  size_t count = 0;
-
-  for (absl::string_view c : Utf8AsChars(text)) {
-    if (c != "い" && c != "ぃ" &&
-        !IsLiveConversionProlongationMarkText(c)) {
-      return false;
-    }
-    ++count;
-    if (count > kMaxCasualGreetingProlongedTailChars) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool IsPendingRomanSForCasualSsuGreeting(absl::string_view text) {
-  return text == "s" || text == "ss";
-}
-
-bool IsCasualGreetingProlongedTailWithPendingRomanS(
-    absl::string_view text) {
-  if (text.empty()) {
-    return false;
-  }
-
-  if (IsPendingRomanSForCasualSsuGreeting(text)) {
-    return true;
-  }
-
-  if (text.ends_with("ss")) {
-    return IsCasualGreetingProlongedTail(
-        text.substr(0, text.size() - 2));
-  }
-
-  if (text.ends_with("s")) {
-    return IsCasualGreetingProlongedTail(
-        text.substr(0, text.size() - 1));
-  }
-
-  return IsCasualGreetingProlongedTail(text);
-}
-
-bool MatchesCasualSsuGreetingAtom(absl::string_view atom,
-                                  absl::string_view head) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, head)) {
-    return false;
-  }
-
-  const size_t sokuon_pos = rest.find("っ");
-  if (sokuon_pos == absl::string_view::npos) {
-    return false;
-  }
-
-  if (!IsCasualGreetingProlongedTail(rest.substr(0, sokuon_pos))) {
-    return false;
-  }
-
-  rest = rest.substr(sokuon_pos);
-
-  if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-    return false;
-  }
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, "す")) {
-    return false;
-  }
-
-  return rest.empty() || IsOnlyLiveConversionProlongationMarks(rest);
-}
-
-bool IsCasualSsuGreetingAtom(absl::string_view atom) {
-  return MatchesCasualSsuGreetingAtom(atom, "ち") ||
-         MatchesCasualSsuGreetingAtom(atom, "ちょ") ||
-         MatchesCasualSsuGreetingAtom(atom, "ちょり");
-}
-
-bool MatchesCasualSsuGreetingPrefixAtom(absl::string_view atom,
-                                        absl::string_view head,
-                                        bool allow_bare_head) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, head)) {
-    return false;
-  }
-
-  if (allow_bare_head && rest.empty()) {
-    return true;
-  }
-
-  const size_t sokuon_pos = rest.find("っ");
-  if (sokuon_pos == absl::string_view::npos) {
-    return !rest.empty() &&
-           IsCasualGreetingProlongedTailWithPendingRomanS(rest);
-  }
-
-  if (!IsCasualGreetingProlongedTail(rest.substr(0, sokuon_pos))) {
-    return false;
-  }
-
-  rest = rest.substr(sokuon_pos);
-
-  if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-    return false;
-  }
-
-  return rest.empty() || IsPendingRomanSForCasualSsuGreeting(rest);
-}
-
-bool IsCasualSsuGreetingPrefixAtom(absl::string_view atom) {
-  return MatchesCasualSsuGreetingPrefixAtom(
-             atom, "ち", /*allow_bare_head=*/false) ||
-         MatchesCasualSsuGreetingPrefixAtom(
-             atom, "ちょ", /*allow_bare_head=*/true) ||
-         atom == "ちょr" ||
-         atom == "ちょri" ||
-         MatchesCasualSsuGreetingPrefixAtom(
-             atom, "ちょり", /*allow_bare_head=*/true);
-}
-
-enum class EvaluativeSlangTailType {
-  kNone,
-  kOptionalI,
-  kOptionalEe,
-  kRequiredIi,
-};
-
-struct RepeatedSokuonStemPattern {
-  absl::string_view head;
-  absl::string_view body;
-  EvaluativeSlangTailType tail_type;
-};
-
-constexpr size_t kMaxEvaluativeSlangVowelTailChars = 30;
-
-bool IsRepeatedKanaVowelTail(absl::string_view text,
-                             absl::string_view large,
-                             absl::string_view small_kana) {
-  size_t count = 0;
-
-  for (absl::string_view c : Utf8AsChars(text)) {
-    if (c != large && c != small_kana) {
-      return false;
-    }
-    ++count;
-    if (count > kMaxEvaluativeSlangVowelTailChars) {
-      return false;
-    }
-  }
-
-  return count > 0;
-}
-
-bool MatchesEvaluativeSlangTail(absl::string_view rest,
-                                EvaluativeSlangTailType tail_type) {
-  switch (tail_type) {
-    case EvaluativeSlangTailType::kNone:
-      return rest.empty();
-
-    case EvaluativeSlangTailType::kOptionalI:
-      return rest.empty() || rest == "い";
-
-    case EvaluativeSlangTailType::kOptionalEe:
-      return rest.empty() || rest == "ー" ||
-             IsRepeatedKanaVowelTail(rest, "え", "ぇ");
-
-    case EvaluativeSlangTailType::kRequiredIi:
-      return rest == "ー" || IsRepeatedKanaVowelTail(rest, "い", "ぃ");
-  }
-
-  return false;
-}
-
-bool MatchesRepeatedSokuonStemPattern(
-    absl::string_view atom,
-    const RepeatedSokuonStemPattern& pattern) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, pattern.head)) {
-    return false;
-  }
-
-  if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-    return false;
-  }
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, pattern.body)) {
-    return false;
-  }
-
-  return MatchesEvaluativeSlangTail(rest, pattern.tail_type);
-}
-
-const RepeatedSokuonStemPattern kEvaluativeSlangPatterns[] = {
-    // やばい / やべぇ
-    {"や", "ば", EvaluativeSlangTailType::kOptionalI},
-    {"や", "べ", EvaluativeSlangTailType::kOptionalEe},
-
-    // すごい / すげぇ / 少ない口語形 / 酸っぱい口語形
-    {"す", "ご", EvaluativeSlangTailType::kOptionalI},
-    {"す", "げ", EvaluativeSlangTailType::kOptionalEe},
-    {"す", "くな", EvaluativeSlangTailType::kOptionalI},
-    {"す", "くね", EvaluativeSlangTailType::kOptionalEe},
-    {"す", "ぱ", EvaluativeSlangTailType::kNone},
-    {"す", "ぺ", EvaluativeSlangTailType::kOptionalEe},
-
-    // 怖い / 強い / 辛い
-    {"こ", "わ", EvaluativeSlangTailType::kOptionalI},
-    {"つ", "よ", EvaluativeSlangTailType::kOptionalI},
-    {"つ", "ら", EvaluativeSlangTailType::kOptionalI},
-    {"つ", "れ", EvaluativeSlangTailType::kOptionalEe},
-
-    // でかい / 長い / 高い / 高ぇ
-    {"で", "か", EvaluativeSlangTailType::kOptionalI},
-    {"な", "が", EvaluativeSlangTailType::kOptionalI},
-    {"た", "か", EvaluativeSlangTailType::kOptionalI},
-    {"た", "け", EvaluativeSlangTailType::kOptionalEe},
-
-    // 小さい / 小っちゃい / 小せぇ
-    {"ち", "さ", EvaluativeSlangTailType::kOptionalI},
-    {"ち", "ちゃ", EvaluativeSlangTailType::kOptionalI},
-    {"ち", "せ", EvaluativeSlangTailType::kOptionalEe},
-
-    // 低い / 広い
-    {"ひ", "く", EvaluativeSlangTailType::kOptionalI},
-    {"ひ", "ろ", EvaluativeSlangTailType::kOptionalI},
-
-    // 寒い / 寒ぃ
-    {"さ", "む", EvaluativeSlangTailType::kOptionalI},
-    {"さ", "み", EvaluativeSlangTailType::kRequiredIi},
-
-    // 暑い / 熱い / あっちぃ
-    {"あ", "つ", EvaluativeSlangTailType::kOptionalI},
-    {"あ", "ち", EvaluativeSlangTailType::kRequiredIi},
-
-    // うまい / うめぇ / うざい / うぜぇ / 薄い
-    {"う", "ま", EvaluativeSlangTailType::kOptionalI},
-    {"う", "め", EvaluativeSlangTailType::kOptionalEe},
-    {"う", "ざ", EvaluativeSlangTailType::kOptionalI},
-    {"う", "ぜ", EvaluativeSlangTailType::kOptionalEe},
-    {"う", "す", EvaluativeSlangTailType::kOptionalI},
-
-    // 軽い
-    {"か", "る", EvaluativeSlangTailType::kOptionalI},
-
-    // きつい / きちぃ / きもい / きれい
-    {"き", "つ", EvaluativeSlangTailType::kOptionalI},
-    {"き", "ち", EvaluativeSlangTailType::kRequiredIi},
-    {"き", "も", EvaluativeSlangTailType::kOptionalI},
-    {"き", "れい", EvaluativeSlangTailType::kNone},
-
-    // だるい / だりぃ / ださい / だせぇ
-    {"だ", "る", EvaluativeSlangTailType::kOptionalI},
-    {"だ", "り", EvaluativeSlangTailType::kRequiredIi},
-    {"だ", "さ", EvaluativeSlangTailType::kOptionalI},
-    {"だ", "せ", EvaluativeSlangTailType::kOptionalEe},
-
-    // えぐい
-    {"え", "ぐ", EvaluativeSlangTailType::kOptionalI},
-
-    // 臭い / くせぇ / 黒い
-    {"く", "さ", EvaluativeSlangTailType::kOptionalI},
-    {"く", "せ", EvaluativeSlangTailType::kOptionalEe},
-    {"く", "ろ", EvaluativeSlangTailType::kOptionalI},
-
-    // まぶしい
-    {"ま", "ぶし", EvaluativeSlangTailType::kOptionalI},
-
-    // 重い / 遅い / 早い
-    {"お", "も", EvaluativeSlangTailType::kOptionalI},
-    {"お", "そ", EvaluativeSlangTailType::kOptionalI},
-    {"は", "や", EvaluativeSlangTailType::kOptionalI},
-
-    // めっちゃ / もっと
-    {"め", "ちゃ", EvaluativeSlangTailType::kNone},
-    {"も", "と", EvaluativeSlangTailType::kNone},
-
-    // 眠い / 細い / 狭い / 短い / 白い
-    {"ね", "む", EvaluativeSlangTailType::kOptionalI},
-    {"ほ", "そ", EvaluativeSlangTailType::kOptionalI},
-    {"せ", "ま", EvaluativeSlangTailType::kOptionalI},
-    {"み", "じか", EvaluativeSlangTailType::kOptionalI},
-    {"し", "ろ", EvaluativeSlangTailType::kOptionalI},
-};
-
-bool IsEvaluativeSlangAdjectiveAtom(absl::string_view atom) {
-  for (const RepeatedSokuonStemPattern& pattern :
-       kEvaluativeSlangPatterns) {
-    if (MatchesRepeatedSokuonStemPattern(atom, pattern)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool IsEvaluativeSlangAdjectivePrefixAtom(absl::string_view atom) {
-  for (const RepeatedSokuonStemPattern& pattern :
-       kEvaluativeSlangPatterns) {
-    if (MatchesRepeatedSokuonPrefix(atom, pattern.head)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool MatchesUsoOrKusoFamilyExpressiveProsodyAtom(
-    absl::string_view atom,
-    absl::string_view head,
-    bool allow_n_tail) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, head)) {
-    return false;
-  }
-
-  if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-    return false;
-  }
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, "そ")) {
-    return false;
-  }
-
-  if (rest.empty()) {
-    return true;
-  }
-
-  if (IsOnlyLiveConversionProlongationMarks(rest)) {
-    return true;
-  }
-
-  if (allow_n_tail &&
-      IsLiveConversionProlongationMarksWithOptionalN(rest)) {
-    return true;
-  }
-
-  return false;
-}
-
-bool IsUsoOrKusoFamilyExpressiveProsodyAtom(absl::string_view atom) {
-  // Match 「うっそ」「うっっそ」「うっそー」「うっそん」 etc.
-  // Do not match bare 「うそ」 or 「うっそう」 because 「嘘」 and 「鬱蒼」
-  // are useful live-conversion targets.
-  if (MatchesUsoOrKusoFamilyExpressiveProsodyAtom(
-          atom, "う", /*allow_n_tail=*/true)) {
-    return true;
-  }
-
-  // Match 「くっそ」「くっっそ」「くっそー」 etc.  Keep bare 「くそ」
-  // in the boundary-sensitive lexical list, and do not match 「くそう」.
-  return MatchesUsoOrKusoFamilyExpressiveProsodyAtom(
-      atom, "く", /*allow_n_tail=*/false);
-}
-
-bool IsUsoOrKusoFamilyExpressiveProsodyPrefixAtom(
-    absl::string_view atom) {
-  return MatchesRepeatedSokuonPrefix(atom, "う") ||
-         MatchesRepeatedSokuonPrefix(atom, "く");
-}
-
-bool MatchesUhyoFamilyExpressiveProsodyAtom(absl::string_view atom) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, "う")) {
-    return false;
-  }
-
-  // Accept both 「うひょ」/「うひゃ」 and emphasized forms such as
-  // 「うっひょ」, 「うっひゃ」, 「うっっひょ」 and 「うっっひゃ」.
-  if (!ConsumeAnyPrefixForLiveConversionMatcher(&rest, {"ひょ", "ひゃ"})) {
-    if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-      return false;
-    }
-    if (!ConsumeAnyPrefixForLiveConversionMatcher(&rest, {"ひょ", "ひゃ"})) {
-      return false;
-    }
-  }
-
-  if (rest.empty()) {
-    return true;
-  }
-
-  if (IsOnlyLiveConversionProlongationMarks(rest)) {
-    return true;
-  }
-
-  if (IsLiveConversionProlongationMarksWithOptionalN(rest)) {
-    return true;
-  }
-
-  if (IsLiveConversionProlongationMarksWithOptionalI(rest)) {
-    return true;
-  }
-
-  return false;
-}
-
-bool IsUhyoFamilyExpressiveProsodyAtom(absl::string_view atom) {
-  return MatchesUhyoFamilyExpressiveProsodyAtom(atom);
-}
-
-bool IsUhyoFamilyExpressiveProsodyPrefixAtom(absl::string_view atom) {
-  absl::string_view rest = atom;
-
-  if (!ConsumePrefixForLiveConversionMatcher(&rest, "う")) {
-    return false;
-  }
-
-  if (rest == "ひ") {
-    return true;
-  }
-
-  if (!ConsumeRepeatedExpressiveSokuon(&rest)) {
-    return false;
-  }
-
-  return rest == "ひ";
-}
-
-bool FindEvaluativeSlangAdjectiveOrPrefixSuffix(
-    absl::string_view text,
-    absl::string_view* suffix) {
-  size_t offset = 0;
-  for (absl::string_view c : Utf8AsChars(text)) {
-    const absl::string_view candidate = text.substr(offset);
-    if (IsEvaluativeSlangAdjectiveAtom(candidate) ||
-        IsEvaluativeSlangAdjectivePrefixAtom(candidate)) {
-      *suffix = candidate;
-      return true;
-    }
-    offset += c.size();
-  }
-
-  return false;
-}
-
-bool HasShortPrefixBeforeSuffix(absl::string_view text,
-                                absl::string_view suffix,
-                                size_t max_prefix_chars) {
-  if (suffix.data() < text.data() ||
-      suffix.data() + suffix.size() > text.data() + text.size()) {
-    return false;
-  }
-
-  const size_t prefix_bytes = suffix.data() - text.data();
-  return Util::CharsLen(text.substr(0, prefix_bytes)) <= max_prefix_chars;
-}
-
-bool ShouldHoldEvaluativeSlangAdjectiveForLiveConversion(
-    const LiveConversionAtom& atom,
-    absl::string_view lexical_core) {
-  if (IsEvaluativeSlangAdjectiveAtom(atom.text) ||
-      IsEvaluativeSlangAdjectivePrefixAtom(atom.text)) {
-    // Evaluative slang such as 「やっば」「なっがい」 is often typed after
-    // already-committed context, e.g. 「これ」 + 「やっば」.  Keep the atom
-    // as kana when the whole current composition is the slang atom, or when
-    // it appears after a clear in-composition boundary.
-    return atom.is_entire_composition ||
-           atom.left_boundary == LiveConversionLeftBoundary::kKnownBoundary;
-  }
-
-  absl::string_view suffix;
-  if (!FindEvaluativeSlangAdjectiveOrPrefixSuffix(lexical_core, &suffix)) {
-    return false;
-  }
-
-  // Also protect short colloquial phrases such as 「これやっば」 and
-  // 「まじでなっがい」, including their typing prefixes such as 「これやっ」.
-  // Avoid suppressing live conversion for long sentences whose tail merely
-  // happens to be evaluative slang.
-  return HasShortPrefixBeforeSuffix(
-      lexical_core, suffix, kMaxEvaluativeSlangPrefixChars);
-}
-
-bool CanHoldLowAmbiguityExpressiveAtom(const LiveConversionAtom& atom) {
-  return atom.is_entire_composition ||
-         atom.left_boundary == LiveConversionLeftBoundary::kKnownBoundary;
-}
-
-bool CanHoldBoundarySensitiveExpressiveAtom(const LiveConversionAtom& atom) {
-  if (atom.left_boundary == LiveConversionLeftBoundary::kKnownNonBoundary) {
-    return false;
-  }
-
-  return atom.is_entire_composition ||
-         atom.left_boundary == LiveConversionLeftBoundary::kKnownBoundary;
-}
-
-bool ShouldHoldExpressiveKanaAtomForLiveConversion(
-    const LiveConversionAtom& atom,
-    absl::string_view expressive_core) {
-  if (atom.text.empty()) {
-    return false;
-  }
-
-  if (IsHoFamilyExpressiveProsodyAtom(atom.text) ||
-      IsUhyoFamilyExpressiveProsodyAtom(atom.text) ||
-      IsUhyoFamilyExpressiveProsodyPrefixAtom(atom.text) ||
-      IsUsoOrKusoFamilyExpressiveProsodyAtom(atom.text) ||
-      IsUsoOrKusoFamilyExpressiveProsodyPrefixAtom(atom.text) ||
-      IsCasualSsuGreetingAtom(atom.text) ||
-      IsCasualSsuGreetingPrefixAtom(atom.text)) {
-    return CanHoldLowAmbiguityExpressiveAtom(atom);
-  }
-
-  const absl::string_view lexical_atom =
-      StripTrailingLiveConversionProlongationMarks(atom.text);
-  const absl::string_view lexical_core =
-      StripTrailingLiveConversionProlongationMarks(expressive_core);
-
-  if (!lexical_atom.empty() &&
-      Util::IsScriptType(lexical_atom, Util::HIRAGANA)) {
-    if (IsRepeatedEInterjectionAtom(lexical_atom)) {
-      return CanHoldLowAmbiguityExpressiveAtom(atom);
-    }
-
-    if (IsStrongExpressiveKanaAtom(lexical_atom)) {
-      return CanHoldLowAmbiguityExpressiveAtom(atom);
-    }
-
-    if (IsSokuonEndingMimeticAtom(lexical_atom)) {
-      return CanHoldBoundarySensitiveExpressiveAtom(atom);
-    }
-
-    if (IsBoundarySensitiveExpressiveKanaAtom(lexical_atom)) {
-      return CanHoldBoundarySensitiveExpressiveAtom(atom);
-    }
-  }
-
-  if (!lexical_core.empty() &&
-      Util::IsScriptType(lexical_core, Util::HIRAGANA) &&
-      ShouldHoldEvaluativeSlangAdjectiveForLiveConversion(atom,
-                                                          lexical_core)) {
-    return true;
-  }
-
-  return false;
-}
-
-bool FindEvaluativeSlangAdjectivePrefixSuffix(
-    absl::string_view text,
-    absl::string_view* suffix) {
-  size_t offset = 0;
-  for (absl::string_view c : Utf8AsChars(text)) {
-    const absl::string_view candidate = text.substr(offset);
-    if (IsEvaluativeSlangAdjectivePrefixAtom(candidate)) {
-      *suffix = candidate;
-      return true;
-    }
-    offset += c.size();
-  }
-
-  return false;
-}
-
-bool ShouldHoldEvaluativeSlangAdjectivePrefixForLiveConversion(
-    const LiveConversionAtom& atom,
-    absl::string_view lexical_core) {
-  if (IsEvaluativeSlangAdjectivePrefixAtom(atom.text)) {
-    return atom.is_entire_composition ||
-           atom.left_boundary == LiveConversionLeftBoundary::kKnownBoundary;
-  }
-
-  absl::string_view suffix;
-  if (!FindEvaluativeSlangAdjectivePrefixSuffix(lexical_core, &suffix)) {
-    return false;
-  }
-
-  // Protect short colloquial phrase prefixes such as 「これやっ」 or
-  // 「まじでなっ」, but let completed forms like 「これやっば」 reach the
-  // converter so user history and user dictionary preferences can apply.
-  return HasShortPrefixBeforeSuffix(
-      lexical_core, suffix, kMaxEvaluativeSlangPrefixChars);
-}
-
-bool ShouldHoldExpressiveKanaTypingPrefixForLiveConversion(
-    const LiveConversionAtom& atom,
-    absl::string_view expressive_core) {
-  if (atom.text.empty()) {
-    return false;
-  }
-
-  if (IsUhyoFamilyExpressiveProsodyPrefixAtom(atom.text) ||
-      IsUsoOrKusoFamilyExpressiveProsodyPrefixAtom(atom.text) ||
-      IsCasualSsuGreetingPrefixAtom(atom.text)) {
-    return CanHoldLowAmbiguityExpressiveAtom(atom);
-  }
-
-  const absl::string_view lexical_atom =
-      StripTrailingLiveConversionProlongationMarks(atom.text);
-  const absl::string_view lexical_core =
-      StripTrailingLiveConversionProlongationMarks(expressive_core);
-
-  if (!lexical_atom.empty() &&
-      Util::IsScriptType(lexical_atom, Util::HIRAGANA) &&
-      ShouldHoldEvaluativeSlangAdjectivePrefixForLiveConversion(
-          atom, lexical_core)) {
-    return true;
-  }
-
-  return false;
-}
-
-bool ShouldSkipLiveConversionForCompositionKey(
-    absl::string_view key,
-    LiveConversionLeftBoundary committed_left_boundary,
-    size_t min_key_length) {
-  if (Util::CharsLen(key) < min_key_length) {
-    return true;
-  }
-
-  // Keep only unfinished expressive typing prefixes out of live conversion.
-  // Completed expressive words should reach the converter so that normal
-  // dictionary ranking, user history, and user dictionary entries can decide
-  // between hiragana and katakana spellings.
-  const absl::string_view expressive_core =
-      StripTrailingLiveConversionSentenceTail(key);
-  if (!expressive_core.empty()) {
-    const LiveConversionAtom atom =
-        ExtractTrailingLiveConversionAtom(expressive_core,
-                                          committed_left_boundary);
-    if (ShouldHoldExpressiveKanaTypingPrefixForLiveConversion(
-            atom, expressive_core)) {
-      return true;
-    }
-  }
-
-  absl::string_view core = key;
-  bool has_decorative_tail = false;
-
-  while (!core.empty()) {
-    absl::string_view rest;
-    char32_t last = 0;
-    if (!Util::SplitLastChar32(core, &rest, &last)) {
-      break;
-    }
-    if (!IsLiveConversionTrailingDecorativeSymbol(last)) {
-      break;
-    }
-    has_decorative_tail = true;
-    core = rest;
-  }
-
-  if (!has_decorative_tail) {
-    return false;
-  }
-
-  // Pure symbol sequences such as "~~" do not need live conversion.
-  if (core.empty()) {
-    return true;
-  }
-
-  // "え~", "へー", "ん？" should stay as kana while typing.
-  // But longer readings such as "きょう~" may still be live-converted.
-  if (Util::CharsLen(core) >= min_key_length) {
-    return false;
-  }
-
-  return Util::IsScriptType(core, Util::HIRAGANA);
-}
-
-bool ShouldKeepPendingLiveConversionForTransientSokuon(absl::string_view key) {
-  if (key.empty() || !Util::IsScriptType(key, Util::HIRAGANA)) {
-    return false;
-  }
-
-  absl::string_view rest;
-  char32_t last = 0;
-  if (!Util::SplitLastChar32(key, &rest, &last) || last != U'っ') {
-    return false;
-  }
-
-  if (Util::CharsLen(rest) < 2) {
-    return false;
-  }
-
-  absl::string_view before_rest;
-  char32_t previous = 0;
-  if (Util::SplitLastChar32(rest, &before_rest, &previous) &&
-      previous == U'っ') {
-    return false;
-  }
-
-  // This is aimed at transient sokuon forms that commonly recover on the
-  // next kana, e.g. 「おもっ」→「おもって」 and 「くさっ」→「くさって」.
-  // Keep this list narrow so expressive atoms such as 「やっっ」 and 「ふんっ」
-  // continue to use the existing composition-only behavior.
-  const auto has_transient_stem_suffix = [&](absl::string_view stem) {
-    if (!absl::EndsWith(rest, stem)) {
-      return false;
-    }
-
-    const absl::string_view prefix = rest.substr(0, rest.size() - stem.size());
-    if (prefix.empty()) {
-      return true;
-    }
-
-    // Allow common short functional prefixes within the same composition,
-    // e.g. 「とおもっ」→「と思って」 and 「をさわっ」→「を触って」.
-    return ContainsStringView({
-        "と", "を", "に", "が", "は", "も", "で", "へ",
-        "から", "まで", "より",
-    }, prefix);
-  };
-
-  return has_transient_stem_suffix("おも") ||  // 思っ...
-         has_transient_stem_suffix("くさ") ||  // 腐っ...
-         has_transient_stem_suffix("さわ") ||  // 触っ...
-         has_transient_stem_suffix("かえ") ||  // 帰っ...
-         has_transient_stem_suffix("わら") ||  // 笑っ...
-         has_transient_stem_suffix("おこ") ||  // 怒っ...
-         has_transient_stem_suffix("まよ") ||  // 迷っ...
-         has_transient_stem_suffix("のこ") ||  // 残っ...
-         has_transient_stem_suffix("ひろ") ||  // 拾っ...
-         has_transient_stem_suffix("ふと") ||  // 太っ...
-         has_transient_stem_suffix("あた") ||  // 当たっ...
-         has_transient_stem_suffix("あら") ||  // 洗っ...
-         has_transient_stem_suffix("うつ") ||  // 打っ...
-         has_transient_stem_suffix("うた") ||  // 歌っ...
-         has_transient_stem_suffix("けず") ||  // 削っ...
-         has_transient_stem_suffix("しぼ") ||  // 絞っ...
-         has_transient_stem_suffix("すわ") ||  // 座っ...
-         has_transient_stem_suffix("とま") ||  // 止まっ...
-         has_transient_stem_suffix("なお") ||  // 直っ...
-         has_transient_stem_suffix("のぼ") ||  // 登っ...
-         has_transient_stem_suffix("はし") ||  // 走っ...
-         has_transient_stem_suffix("まわ");    // 回っ...
-}
-
-bool CandidateWordHasAttribute(const commands::CandidateWord& candidate,
-                               commands::CandidateAttribute attribute) {
-  for (int i = 0; i < candidate.attributes_size(); ++i) {
-    if (candidate.attributes(i) == attribute) {
-      return true;
-    }
-  }
-  return false;
-}
+constexpr uint32_t kZenzConversionAsyncWaitMsec = 3000;
 
 bool IsAsciiIdentityChar(const unsigned char c) {
   return (('0' <= c) && (c <= '9')) || (('A' <= c) && (c <= 'Z')) ||
@@ -1596,7 +320,7 @@ ZenzReverseLearningProjection BuildZenzReverseLearningSegmentsFromPreedit(
   }
 
   // The snapshot must describe the same full Zenz request.  Otherwise it may
-  // belong to an older live-conversion generation and must not be used.
+  // belong to an older conversion generation and must not be used.
   if (concatenated_key != full_key) {
     return {};
   }
@@ -1699,7 +423,7 @@ ZenzReverseLearningProjection BuildZenzReverseLearningSegmentsFromPreedit(
   for (int i = 0; i < segment_size; ++i) {
     // Full-sequence learning already covers the whole accepted result.  The
     // reverse path records only segments that Zenz actually changed relative to
-    // the visible Mozc live-conversion result.
+    // the visible Mozc conversion result.
     if (projected_values[i] == mozc_values[i]) {
       continue;
     }
@@ -1777,7 +501,7 @@ std::string FindPreeditKeyForProtectedSurface(
       return protected_key;
     }
 
-    // Some live-conversion preedit segments can be larger than the protected
+    // Some conversion preedit segments can be larger than the protected
     // word, e.g. "じしょごのてんてきです" -> "辞書語の点滴です".
     // In that case the visible suffix is converted, so literal suffix matching
     // cannot infer the boundary.  If the user-dictionary key and value both
@@ -2001,62 +725,32 @@ std::vector<ProtectedConversionSpan> BuildZenzProtectedConversionSpans(
   return protected_spans;
 }
 
-uint32_t GetLiveConversionDelayMillisec(const config::Config& config) {
-  if (!config.has_live_conversion_delay_msec()) {
-    return kDefaultLiveConversionDelayMillisec;
-  }
-  return std::min(config.live_conversion_delay_msec(),
-                  kMaxLiveConversionDelayMillisec);
+
+
+uint32_t GetZenzConversionTimeoutMsec(const config::Config& config) {
+  const uint32_t configured_timeout =
+      config.has_zenz_conversion_timeout_msec()
+          ? config.zenz_conversion_timeout_msec()
+          : kDefaultZenzConversionTimeoutMsec;
+  return std::max<uint32_t>(
+      1, std::min(configured_timeout, kMaxZenzConversionTimeoutMsec));
 }
 
-size_t GetLiveConversionMinKeyLength(const config::Config& config) {
-  const uint32_t value = config.has_live_conversion_min_key_length()
-                             ? config.live_conversion_min_key_length()
-                             : kDefaultLiveConversionMinKeyLength;
-  return static_cast<size_t>(
-      std::clamp(value,
-                 kMinLiveConversionMinKeyLength,
-                 kMaxLiveConversionMinKeyLength));
-}
-
-uint32_t GetZenzLiveCorrectionDelayMsec(const config::Config& config) {
-  if (!config.has_zenz_live_correction_delay_msec()) {
-    return kDefaultZenzLiveCorrectionDelayMsec;
-  }
-  return std::min(config.zenz_live_correction_delay_msec(),
-                  kMaxZenzLiveCorrectionDelayMsec);
-}
-
-uint32_t GetZenzLiveCorrectionTimeoutMsec(const config::Config& config) {
-  if (!config.has_zenz_live_correction_timeout_msec()) {
-    return kDefaultZenzLiveCorrectionTimeoutMsec;
-  }
-  return std::min(config.zenz_live_correction_timeout_msec(),
-                  kMaxZenzLiveCorrectionTimeoutMsec);
-}
-
-uint32_t GetZenzLiveCorrectionMinKeyLength(const config::Config& config) {
-  if (!config.has_zenz_live_correction_min_key_length()) {
-    return kDefaultZenzLiveCorrectionMinKeyLength;
-  }
-  return std::max<uint32_t>(2, config.zenz_live_correction_min_key_length());
-}
-
-uint32_t GetZenzLiveCorrectionLeftContextLength(
+uint32_t GetZenzConversionLeftContextLength(
     const config::Config& config) {
-  return config.zenz_live_correction_left_context_length();
+  return config.use_zenz_context() ? config.zenz_context_left_length() : 0;
 }
 
-uint32_t GetZenzLiveCorrectionRightContextLength(
+uint32_t GetZenzConversionRightContextLength(
     const config::Config& config) {
-  if (!config.use_zenz_live_correction_right_context()) {
+  if (!config.use_zenz_context() || !config.use_zenz_right_context()) {
     return 0;
   }
 
   const uint32_t length =
-      config.zenz_live_correction_right_context_length();
+      config.zenz_context_right_length();
   return std::min<uint32_t>(length,
-                            kMaxZenzLiveCorrectionRightContextLength);
+                            kMaxZenzConversionRightContextLength);
 }
 
 bool UseZenzFeedbackLearning(const config::Config& config) {
@@ -2084,8 +778,8 @@ bool StartsWithString(absl::string_view text, absl::string_view prefix) {
          text.substr(0, prefix.size()) == prefix;
 }
 
-constexpr size_t kMaxZenzLiveCorrectionKeyChars = 64;
-constexpr size_t kMaxZenzLiveCorrectionValueChars = 128;
+constexpr size_t kMaxZenzConversionKeyChars = 64;
+constexpr size_t kMaxZenzConversionValueChars = 128;
 
 struct ZenzTextPrivacyDecision {
   bool allow = false;
@@ -2148,7 +842,7 @@ bool ContainsJapaneseScriptSignal(
 
   return false;
 }
-ZenzTextPrivacyDecision EvaluateZenzLiveKeyPrivacy(
+ZenzTextPrivacyDecision EvaluateZenzConversionKeyPrivacy(
     absl::string_view key) {
   if (key.empty()) {
     return {false, "empty_key"};
@@ -2166,7 +860,7 @@ ZenzTextPrivacyDecision EvaluateZenzLiveKeyPrivacy(
   }
 
   if (Util::CharsLen(key) >
-      kMaxZenzLiveCorrectionKeyChars) {
+      kMaxZenzConversionKeyChars) {
     return {false, "key_too_long"};
   }
 
@@ -2190,7 +884,7 @@ ZenzTextPrivacyDecision EvaluateZenzLiveKeyPrivacy(
 
   return {true, "allow"};
 }
-ZenzTextPrivacyDecision EvaluateZenzLiveValuePrivacy(
+ZenzTextPrivacyDecision EvaluateZenzConversionValuePrivacy(
     absl::string_view value) {
   if (value.empty()) {
     return {false, "empty_value"};
@@ -2208,7 +902,7 @@ ZenzTextPrivacyDecision EvaluateZenzLiveValuePrivacy(
   }
 
   if (Util::CharsLen(value) >
-      kMaxZenzLiveCorrectionValueChars) {
+      kMaxZenzConversionValueChars) {
     return {false, "value_too_long"};
   }
 
@@ -2324,66 +1018,6 @@ bool IsPendingDirectCommitLearningDiscardKey(
   }
 }
 
-bool ShouldCommitLiveConversionBeforeShiftAsciiInput(
-    const config::Config& config,
-    const composer::Composer& composer,
-    const commands::KeyEvent& key_event) {
-  if (config.shift_key_mode_switch() !=
-      config::Config::ASCII_INPUT_MODE) {
-    return false;
-  }
-
-  if (key_event.input_style() != commands::KeyEvent::FOLLOW_MODE) {
-    return false;
-  }
-
-  if (key_event.has_special_key()) {
-    return false;
-  }
-
-  if (composer.GetInputFieldType() == commands::Context::PASSWORD) {
-    return false;
-  }
-
-  const transliteration::TransliterationType input_mode =
-      composer.GetInputMode();
-  if (input_mode == transliteration::HALF_ASCII ||
-      input_mode == transliteration::FULL_ASCII) {
-    return false;
-  }
-
-  const size_t length = composer.GetLength();
-  if (length == 0 || length != composer.GetCursor()) {
-    return false;
-  }
-
-  std::string input;
-  if (!key_event.key_string().empty()) {
-    if (key_event.key_string().size() != 1) {
-      return false;
-    }
-    input = key_event.key_string();
-  } else if (key_event.has_key_code()) {
-    if (key_event.key_code() > 0x7f) {
-      return false;
-    }
-    input.push_back(static_cast<char>(key_event.key_code()));
-  } else {
-    return false;
-  }
-
-  const uint32_t modifiers = KeyEventUtil::GetModifiers(key_event);
-  if (KeyEventUtil::HasCtrl(modifiers) ||
-      KeyEventUtil::HasAlt(modifiers)) {
-    return false;
-  }
-
-  const bool caps_locked = KeyEventUtil::HasCaps(modifiers);
-  const char key = input[0];
-
-  return (!caps_locked && ('A' <= key && key <= 'Z')) ||
-         (caps_locked && ('a' <= key && key <= 'z'));
-}
 
 void ExtractPreeditKeyAndValue(const commands::Preedit& preedit,
                                std::string* key,
@@ -2615,29 +1249,6 @@ std::unique_ptr<ImeContext> Session::CreateContext(
 void Session::PushUndoContext() {
   UndoEntry entry;
   entry.context = std::make_unique<ImeContext>(*context_);
-
-  // A pending live-conversion preedit is partly owned by Session rather than
-  // ImeContext: the converted stable prefix and the raw suffix are composed at
-  // output time. Preserve that display state so Undo can restore exactly what
-  // the user saw before submitting it. Generation numbers are intentionally not
-  // stored; PopUndoContext() issues a fresh generation to keep old callbacks
-  // stale.
-  if (live_conversion_pending_ &&
-      context_->state() == ImeContext::COMPOSITION) {
-    PendingLiveConversionUndoState state;
-    state.pending_key = pending_live_conversion_key_;
-    state.pending_input = pending_live_conversion_input_;
-    state.pending_suggestion_candidate_window =
-        pending_live_conversion_suggestion_candidate_window_;
-    state.live_suggestion_candidate_window =
-        live_conversion_suggestion_candidate_window_;
-    state.live_key = live_conversion_key_;
-    state.live_preedit = live_conversion_preedit_;
-    state.live_value = live_conversion_value_;
-    state.live_preedit_output = live_conversion_preedit_output_;
-    entry.pending_live_conversion = std::move(state);
-  }
-
   undo_contexts_.push_back(std::move(entry));
 
   // If the stack size exceeds the limitation, purge the oldest entries.
@@ -2662,36 +1273,8 @@ void Session::PopUndoContext() {
   undo_contexts_.pop_back();
   context_ = std::move(entry.context);
 
-  // Invalidate every callback issued before Undo. If the restored entry was
-  // pending, it receives a new generation and a new callback from Undo().
-  ClearLiveConversionState();
-
-  if (!entry.pending_live_conversion.has_value() ||
-      context_->state() != ImeContext::COMPOSITION) {
-    return;
-  }
-
-  PendingLiveConversionUndoState& state =
-      *entry.pending_live_conversion;
-  const std::string current_key =
-      context_->composer().GetQueryForConversion();
-  if (state.pending_key.empty() || state.pending_key != current_key) {
-    return;
-  }
-
-  live_conversion_pending_ = true;
-  pending_live_conversion_generation_ = live_conversion_generation_;
-  pending_live_conversion_key_ = std::move(state.pending_key);
-  pending_live_conversion_input_ = std::move(state.pending_input);
-  pending_live_conversion_suggestion_candidate_window_ =
-      std::move(state.pending_suggestion_candidate_window);
-  live_conversion_suggestion_candidate_window_ =
-      std::move(state.live_suggestion_candidate_window);
-  live_conversion_key_ = std::move(state.live_key);
-  live_conversion_preedit_ = std::move(state.live_preedit);
-  live_conversion_value_ = std::move(state.live_value);
-  live_conversion_preedit_output_ =
-      std::move(state.live_preedit_output);
+  // Invalidate every callback issued before Undo.
+  ClearZenzConversionState();
 }
 
 bool Session::ShouldRevertConverterOnUndo() const {
@@ -2845,12 +1428,8 @@ bool Session::SendCommand(commands::Command* command) {
       result = UpdateComposition(command);
       break;
 
-    case commands::SessionCommand::APPLY_LIVE_CONVERSION:
-      result = ApplyDelayedLiveConversion(command);
-      break;
-
-    case commands::SessionCommand::APPLY_ZENZ_LIVE_CORRECTION:
-      result = ApplyZenzLiveCorrection(command);
+    case commands::SessionCommand::APPLY_ZENZ_CONVERSION:
+      result = ApplyZenzConversion(command);
       break;
 
     case commands::SessionCommand::RECONVERT_SELECTION_OR_INSERT_SPACE:
@@ -2883,8 +1462,7 @@ bool Session::SendCommand(commands::Command* command) {
       break;
   }
   if (context_->state() != ImeContext::CONVERSION) {
-    live_conversion_active_ = false;
-    ClearZenzLiveCorrectionState();
+    ClearZenzConversionState();
   }
 
   MaybeSetUndoStatus(command);
@@ -3036,8 +1614,7 @@ bool Session::SendKey(commands::Command* command) {
   }
 
   if (context_->state() != ImeContext::CONVERSION) {
-    live_conversion_active_ = false;
-    ClearZenzLiveCorrectionState();
+    ClearZenzConversionState();
   }
 
   MaybeSetUndoStatus(command);
@@ -3666,7 +2243,7 @@ bool Session::SendKeyConversionState(commands::Command* command) {
           ? keymap->GetCommandSequencePrediction(command->input().key(),
                                                  &command_sequence)
           : keymap->GetCommandSequenceConversion(command->input().key(),
-                                                 &command_sequence);
+                                                  &command_sequence);
 
   if (!result || command_sequence.empty()) {
     return DoNothing(command);
@@ -3679,121 +2256,40 @@ bool Session::SendKeyConversionState(commands::Command* command) {
   }
 
   const commands::KeyEvent& input_key = command->input().key();
+  if (pending_zenz_conversion_.pending) {
+    // Any new user action supersedes the asynchronous result.  The ordinary
+    // Mozc conversion remains active and supplies the fallback candidates.
+    CancelPendingZenzConversion();
+  }
 
-  ZenzDebugOutput(absl::StrCat(
-      "[zenz-feedback] SendKeyConversionState"
-      " key_command=", static_cast<int>(key_command),
-      " live_conversion_active=", ZenzBool(live_conversion_active_),
-      " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-      " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-      " pending_zenz_pending=", ZenzBool(pending_zenz_live_.pending),
-      " pending_zenz_gen=", pending_zenz_live_.generation,
-      " pending_context_class=", pending_zenz_live_.context_class,
-      " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-      " ", ZenzRedactedTextStats("pending_value",
-                                  pending_zenz_live_.mozc_value),
-      " ", ZenzRedactedTextStats("zenz_key", zenz_live_key_),
-      " ", ZenzRedactedTextStats("zenz_value", zenz_live_value_),
-      " state=", static_cast<int>(context_->state()),
-      " has_special_key=", ZenzBool(input_key.has_special_key()),
-      " special_key=",
-      input_key.has_special_key()
-          ? static_cast<int>(input_key.special_key())
-          : -1,
-      " has_key_code=", ZenzBool(input_key.has_key_code()),
-      " key_code=", input_key.has_key_code() ? input_key.key_code() : 0,
-      " has_key_string=", ZenzBool(input_key.has_key_string()),
-      " key_string_bytes=",
-      input_key.has_key_string() ? input_key.key_string().size() : 0,
-      " modifier_count=", input_key.modifier_keys_size(),
-      " has_mode=", ZenzBool(input_key.has_mode()),
-      " mode=", input_key.has_mode() ? static_cast<int>(input_key.mode()) : -1,
-      " input_style=", static_cast<int>(input_key.input_style())));
-
-  if (live_conversion_active_) {
-    // During live conversion, Backspace should edit the underlying
-    // composition instead of cancelling conversion.
-    if (IsPlainBackspaceKey(command->input().key())) {
-      DiscardPendingZenzFeedback("backspace_after_zenz");
-      ClearZenzLiveCorrectionState();
-      return Backspace(command);
-    }
-
-    // If a zenz correction is visible, Enter should commit the zenz value
-    // immediately. Do not route this through normal Commit(), because some client
-    // paths may promote the live conversion state before Commit() observes the
-    // zenz state.
-    if (key_command == keymap::ConversionState::COMMIT &&
-        HasVisibleZenzLiveCorrection()) {
-      ZenzDebugOutput(absl::StrCat(
-          "[zenz-feedback] commit key while zenz visible ",
-          ZenzRedactedTextStats("key", zenz_live_key_),
-          " ", ZenzRedactedTextStats("value", zenz_live_value_)));
-
-      if (!CommitZenzLiveCorrectionResult(command)) {
+  if (HasVisibleZenzConversion()) {
+    if (key_command == keymap::ConversionState::COMMIT) {
+      if (!CommitZenzConversionResult(command)) {
         return false;
       }
-
       if (command_sequence.size() == 1) {
         return true;
       }
-
       const commands::Output zenz_commit_output = command->output();
-
       keymap::CommandSequence remaining_sequence(
           command_sequence.begin() + 1, command_sequence.end());
       return ExecuteCommandSequenceWithInitialOutput(
           remaining_sequence, &zenz_commit_output, command);
     }
 
-    // While a zenz correction is visible, plain Space is an explicit
-    // candidate-change operation.  Reject the speculative zenz layer and
-    // restore the underlying Mozc conversion, but promote it to ordinary
-    // conversion state so the next text input commits it instead of extending
-    // the same live-conversion composition.
     if (key_command == keymap::ConversionState::CONVERT_NEXT &&
-        IsPureSpaceKey(input_key) &&
-        HasVisibleZenzLiveCorrection()) {
-      return RevertZenzLiveCorrectionToNormalConversion(command);
+        IsPureSpaceKey(input_key)) {
+      // Space exposes the original Mozc candidate list after rejecting the
+      // temporary Zenz result.
+      return RevertZenzConversionToMozc(command);
     }
 
-    // A prediction key such as Tab should focus prediction candidates even while
-    // live conversion is active.  Do this before the generic live-conversion
-    // promotion below, otherwise PredictAndConvert() would see an ordinary
-    // CONVERSION state and fall back to ConvertNext().  Other conversion
-    // commands still follow their existing keymap-defined conversion path.
-    if (key_command == keymap::ConversionState::PREDICT_AND_CONVERT) {
-      if (!PredictAndConvertFromLiveConversion(command)) {
-        return false;
-      }
-
-      if (command_sequence.size() == 1) {
-        return true;
-      }
-
-      const commands::Output prediction_output = command->output();
-      keymap::CommandSequence remaining_sequence(
-          command_sequence.begin() + 1, command_sequence.end());
-      return ExecuteCommandSequenceWithInitialOutput(
-          remaining_sequence, &prediction_output, command);
-    }
-
-    // Explicit conversion operations such as Space, candidate movement, or Cancel
-    // promote live conversion back to normal conversion behavior.  When a visible
-    // zenz layer exists, plain Space is consumed above to peel off that layer first.
+    // Text input is handled by InsertCharacter(), which can commit the visible
+    // Zenz value when punctuation is directly committed. Other conversion
+    // commands return to the normal Mozc converter before they run.
     if (key_command != keymap::ConversionState::INSERT_CHARACTER) {
-      if (key_command != keymap::ConversionState::COMMIT) {
-        if (key_command == keymap::ConversionState::CANCEL ||
-            key_command == keymap::ConversionState::CANCEL_AND_IME_OFF ||
-            key_command == keymap::ConversionState::UNDO) {
-          DiscardPendingZenzFeedback("cancel_after_zenz");
-        } else if (HasVisibleZenzLiveCorrection()) {
-          SetPendingZenzFeedbackRejected("explicit_conversion_after_zenz");
-        }
-        ClearZenzLiveCorrectionState();
-      }
-      live_conversion_active_ = false;
-      context_->mutable_converter()->SetCandidateListVisible(true);
+      SetPendingZenzFeedbackRejected("conversion_command_after_zenz");
+      ClearZenzConversionState();
     }
   }
 
@@ -3977,7 +2473,7 @@ bool Session::Revert(commands::Command* command) {
   ClearUndoContext();
 
   SetStateToPredompositionAndCancel(context_.get());
-  ClearLiveConversionState();
+  ClearZenzConversionState();
   Output(command);
   return true;
 }
@@ -4000,7 +2496,7 @@ bool Session::ResetContext(commands::Command* command) {
   context_->mutable_converter()->Reset();
 
   SetStateToPredompositionAndCancel(context_.get());
-  ClearLiveConversionState();
+  ClearZenzConversionState();
   Output(command);
   return true;
 }
@@ -4192,19 +2688,7 @@ bool Session::Undo(commands::Command* command) {
     range->set_length(result_size);
   }
 
-  if (live_conversion_pending_ &&
-      context_->state() == ImeContext::COMPOSITION) {
-    if (OutputPendingLiveConversion(command)) {
-      AttachCachedLiveConversionSuggestionCandidateWindow(
-          command->mutable_output());
-      AttachDelayedLiveConversionCallback(command);
-      return true;
-    }
 
-    // A corrupted or incompatible snapshot must degrade to ordinary
-    // composition rather than leave an unserviceable pending state.
-    CancelPendingLiveConversion();
-  }
 
   Output(command);
   return true;
@@ -4339,47 +2823,8 @@ bool Session::MaybeSelectCandidate(commands::Command* command) {
   return context_->mutable_converter()->CandidateMoveToShortcut(shortcut);
 }
 
-void Session::CancelPendingLiveConversion() {
-  ++live_conversion_generation_;
-  live_conversion_pending_ = false;
-  pending_live_conversion_generation_ = 0;
-  pending_live_conversion_key_.clear();
-  pending_live_conversion_input_.Clear();
-  pending_live_conversion_suggestion_candidate_window_.Clear();
-  CancelPendingZenzLiveCorrection();
-}
 
-void Session::ClearLiveConversionState() {
-  ++live_conversion_generation_;
 
-  live_conversion_active_ = false;
-  live_conversion_pending_ = false;
-  pending_live_conversion_generation_ = 0;
-  pending_live_conversion_key_.clear();
-  pending_live_conversion_input_.Clear();
-  pending_live_conversion_suggestion_candidate_window_.Clear();
-  live_conversion_suggestion_candidate_window_.Clear();
-
-  live_conversion_key_.clear();
-  live_conversion_preedit_.clear();
-  live_conversion_value_.clear();
-  live_conversion_preedit_output_.Clear();
-  live_conversion_protected_spans_.clear();
-  ClearZenzLiveCorrectionState();
-}
-
-void Session::CancelLiveConversionForEditing() {
-  CancelPendingLiveConversion();
-  ClearZenzLiveCorrectionState();
-
-  if (!live_conversion_active_) {
-    return;
-  }
-
-  live_conversion_active_ = false;
-  SetSessionState(ImeContext::COMPOSITION, context_.get());
-  context_->mutable_converter()->Cancel();
-}
 
 namespace {
 bool ShouldSuppressShiftedAsciiAutoSuggestion(
@@ -4387,412 +2832,17 @@ bool ShouldSuppressShiftedAsciiAutoSuggestion(
     const composer::Composer& composer);
 }  // namespace
 
-bool Session::MaybeStartLiveConversion(commands::Command* command) {
-  if (!context_->GetConfig().use_live_conversion()) {
-    return false;
-  }
 
-  if (context_->state() != ImeContext::COMPOSITION) {
-    return false;
-  }
 
-  if (context_->composer().GetInputFieldType() == commands::Context::PASSWORD) {
-    return false;
-  }
 
-  const transliteration::TransliterationType input_mode =
-      context_->composer().GetInputMode();
-  if (input_mode == transliteration::HALF_ASCII ||
-      input_mode == transliteration::FULL_ASCII) {
-    return false;
-  }
 
-  const size_t length = context_->composer().GetLength();
-  const std::string live_conversion_key =
-      context_->composer().GetQueryForConversion();
 
-  if (ShouldSkipLiveConversionForCompositionKey(
-          live_conversion_key,
-          GetLiveConversionCommittedLeftBoundary(*context_),
-          GetLiveConversionMinKeyLength(context_->GetConfig())) ||
-      length != context_->composer().GetCursor()) {
-    return false;
-  }
-
-  // Capture the raw composition before Convert(). These strings are the stable
-  // source for the next pending-suffix display.
-  const std::string live_conversion_preedit =
-      context_->composer().GetStringForPreedit();
-
-  // Delayed live-conversion callbacks are SEND_COMMAND inputs and may not carry
-  // the same request_suggestion/context data as the original SEND_KEY input.
-  // Keep the original input for passive suggestion generation so the suggestion
-  // window does not disappear when the delayed live conversion materializes.
-  const bool use_pending_live_conversion_input =
-      live_conversion_pending_ &&
-      pending_live_conversion_key_ == live_conversion_key &&
-      pending_live_conversion_input_.type() != commands::Input::NONE;
-  const commands::Input live_conversion_suggestion_input =
-      use_pending_live_conversion_input ? pending_live_conversion_input_
-                                        : command->input();
-  const commands::CandidateWindow
-      pending_live_conversion_suggestion_candidate_window =
-          pending_live_conversion_suggestion_candidate_window_;
-
-  live_conversion_pending_ = false;
-  pending_live_conversion_generation_ = 0;
-  pending_live_conversion_key_.clear();
-  pending_live_conversion_input_.Clear();
-  pending_live_conversion_suggestion_candidate_window_.Clear();
-
-  if (!context_->mutable_converter()->Convert(context_->composer())) {
-    if (ShouldKeepPendingLiveConversionForTransientSokuon(live_conversion_key) &&
-        OutputPendingLiveConversion(command)) {
-      ClearZenzLiveCorrectionState();
-      return true;
-    }
-
-    OutputComposition(command);
-    return true;
-  }
-
-  SetSessionState(ImeContext::CONVERSION, context_.get());
-  live_conversion_active_ = true;
-
-  // Keep the candidate list visible internally so that the Windows renderer is
-  // updated.
-  context_->mutable_converter()->SetCandidateListVisible(true);
-
-  Output(command);
-
-  if (command->output().has_preedit()) {
-    RestorePreeditSegmentKeysForSymbolStyle(
-        live_conversion_preedit,
-        command->mutable_output()->mutable_preedit());
-  }
-
-  command->mutable_output()->set_live_conversion(true);
-  command->mutable_output()->set_live_conversion_pending(false);
-
-  live_conversion_key_ = live_conversion_key;
-  live_conversion_preedit_ = live_conversion_preedit;
-
-  if (command->output().has_preedit()) {
-    live_conversion_preedit_output_ = command->output().preedit();
-
-    std::string unused_key;
-    ExtractPreeditKeyAndValue(command->output().preedit(),
-                              &unused_key,
-                              &live_conversion_value_);
-  } else {
-    live_conversion_preedit_output_.Clear();
-    live_conversion_value_ = context_->composer().GetStringForSubmission();
-  }
-
-  live_conversion_protected_spans_.clear();
-  if (context_->GetConfig().use_zenz_live_correction()) {
-    live_conversion_protected_spans_ = BuildZenzProtectedConversionSpans(
-        context_->converter(), command->output(), live_conversion_key_,
-        live_conversion_value_);
-  }
-
-  ClearZenzLiveCorrectionState();
-
-  if (MaybeApplyZenzFeedbackLiveCorrection(command)) {
-    return true;
-  }
-
-  const bool should_suppress_shifted_ascii_suggestion =
-      ShouldSuppressShiftedAsciiAutoSuggestion(context_->GetConfig(),
-                                               context_->composer());
-
-  if (should_suppress_shifted_ascii_suggestion) {
-    live_conversion_suggestion_candidate_window_.Clear();
-    pending_live_conversion_suggestion_candidate_window_.Clear();
-    command->mutable_output()->clear_candidate_window();
-  } else if (
-      !AttachLiveConversionSuggestionCandidateWindow(
-          live_conversion_suggestion_input, command->mutable_output()) &&
-      pending_live_conversion_suggestion_candidate_window.candidate_size() > 0) {
-    live_conversion_suggestion_candidate_window_ =
-        pending_live_conversion_suggestion_candidate_window;
-    *command->mutable_output()->mutable_candidate_window() =
-        live_conversion_suggestion_candidate_window_;
-  }
-  MaybeScheduleZenzLiveCorrection(command);
-  return true;
-}
-
-bool Session::OutputPendingLiveConversion(commands::Command* command) const {
-  const std::string current_key = context_->composer().GetQueryForConversion();
-  const std::string raw_preedit = context_->composer().GetStringForPreedit();
-
-  const bool has_stable_live_conversion =
-      !live_conversion_key_.empty() &&
-      !live_conversion_preedit_.empty() &&
-      !live_conversion_value_.empty() &&
-      live_conversion_preedit_output_.segment_size() > 0;
-
-  // First composition after starting IME has no stable converted prefix yet.
-  // In that case, raw pending display is expected and should still be debounced.
-  if (!has_stable_live_conversion) {
-    OutputComposition(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          raw_preedit,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    commands::Output* output = command->mutable_output();
-    output->clear_candidate_window();
-    output->set_live_conversion(true);
-    output->set_live_conversion_pending(true);
-    return true;
-  }
-
-  // If stable-prefix composition cannot be built safely, do not fall back to
-  // raw hiragana. The caller should immediately run live conversion instead.
-  if (!StartsWithString(current_key, live_conversion_key_) ||
-      !StartsWithString(raw_preedit, live_conversion_preedit_)) {
-    return false;
-  }
-
-  const std::string suffix_key =
-      current_key.substr(live_conversion_key_.size());
-  const std::string suffix_value =
-      raw_preedit.substr(live_conversion_preedit_.size());
-
-  OutputComposition(command);
-
-  commands::Output* output = command->mutable_output();
-  output->clear_candidate_window();
-  output->set_live_conversion(true);
-  output->set_live_conversion_pending(true);
-
-  commands::Preedit* preedit = output->mutable_preedit();
-  preedit->Clear();
-
-  // Reuse the exact segment structure and annotations from the latest real
-  // live conversion. This avoids flickering between UNDERLINE and HIGHLIGHT
-  // display attributes.
-  for (int i = 0; i < live_conversion_preedit_output_.segment_size(); ++i) {
-    *preedit->add_segment() = live_conversion_preedit_output_.segment(i);
-  }
-
-  if (!suffix_value.empty()) {
-    AddPreeditSegment(suffix_key.empty() ? suffix_value : suffix_key,
-                      suffix_value,
-                      commands::Preedit::Segment::UNDERLINE,
-                      preedit);
-  }
-
-  RestorePreeditSegmentKeysForSymbolStyle(raw_preedit, preedit);
-
-  preedit->set_cursor(Util::CharsLen(live_conversion_value_) +
-                      Util::CharsLen(suffix_value));
-
-  return true;
-}
-
-void Session::AttachDelayedLiveConversionCallback(
-    commands::Command* command) const {
-  commands::Output::Callback* callback =
-      command->mutable_output()->mutable_callback();
-
-  commands::SessionCommand* session_command =
-      callback->mutable_session_command();
-
-  session_command->set_type(
-      commands::SessionCommand::APPLY_LIVE_CONVERSION);
-  session_command->set_live_conversion_generation(
-      pending_live_conversion_generation_);
-  session_command->set_live_conversion_key(pending_live_conversion_key_);
-
-  callback->set_delay_millisec(
-    GetLiveConversionDelayMillisec(context_->GetConfig()));
-}
-
-bool Session::MaybeScheduleLiveConversion(commands::Command* command) {
-  if (!context_->GetConfig().use_live_conversion()) {
-    return false;
-  }
-
-  if (context_->state() != ImeContext::COMPOSITION) {
-    return false;
-  }
-
-  if (context_->composer().GetInputFieldType() == commands::Context::PASSWORD) {
-    return false;
-  }
-
-  const transliteration::TransliterationType input_mode =
-      context_->composer().GetInputMode();
-  if (input_mode == transliteration::HALF_ASCII ||
-      input_mode == transliteration::FULL_ASCII) {
-    return false;
-  }
-
-  const size_t length = context_->composer().GetLength();
-  const std::string key = context_->composer().GetQueryForConversion();
-
-  const bool should_skip_live_conversion =
-      ShouldSkipLiveConversionForCompositionKey(
-          key,
-          GetLiveConversionCommittedLeftBoundary(*context_),
-          GetLiveConversionMinKeyLength(context_->GetConfig()));
-  const bool cursor_at_end = length == context_->composer().GetCursor();
-
-  if (should_skip_live_conversion || !cursor_at_end) {
-    if (should_skip_live_conversion && cursor_at_end &&
-        ShouldKeepPendingLiveConversionForTransientSokuon(key)) {
-      // Inputs such as 「おもっ」 and 「くさっ」 can be transient sokuon
-      // prefixes before 「て」/「た」.  They may be skipped before Convert()
-      // is attempted, so keep the live conversion overlay as pending instead
-      // of falling back to plain composition output.
-      ++live_conversion_generation_;
-      live_conversion_pending_ = true;
-      pending_live_conversion_generation_ = live_conversion_generation_;
-      pending_live_conversion_key_ = key;
-      pending_live_conversion_input_ = command->input();
-      pending_live_conversion_suggestion_candidate_window_.Clear();
-
-      if (OutputPendingLiveConversion(command)) {
-        AttachDelayedLiveConversionCallback(command);
-        return true;
-      }
-
-      CancelPendingLiveConversion();
-    }
-
-    CancelPendingLiveConversion();
-    return false;
-  }
-
-  const uint32_t delay_msec =
-      GetLiveConversionDelayMillisec(context_->GetConfig());
-  if (delay_msec == 0) {
-    return MaybeStartLiveConversion(command);
-  }
-
-  ++live_conversion_generation_;
-  live_conversion_pending_ = true;
-  pending_live_conversion_generation_ = live_conversion_generation_;
-  pending_live_conversion_key_ = key;
-  pending_live_conversion_input_ = command->input();
-  pending_live_conversion_suggestion_candidate_window_.Clear();
-
-  if (!OutputPendingLiveConversion(command)) {
-    // Avoid showing raw hiragana fallback. If pending display cannot be built
-    // from the stable converted prefix, materialize live conversion immediately.
-    return MaybeStartLiveConversion(command);
-  }
-
-  if (AttachLiveConversionSuggestionCandidateWindow(command->input(),
-                                                    command->mutable_output())) {
-    pending_live_conversion_suggestion_candidate_window_ =
-        command->output().candidate_window();
-  }
-  AttachDelayedLiveConversionCallback(command);
-
-  return true;
-}
-
-bool Session::IgnoreStaleDelayedLiveConversion(commands::Command* command) {
-  command->mutable_output()->set_consumed(true);
-
-  // A stale delayed callback must not return an empty Output. In TSF, an empty
-  // consumed Output may clear the visible composition even though the server-side
-  // composer still has text.
-  if (live_conversion_pending_) {
-    OutputPendingLiveConversion(command);
-    AttachCachedLiveConversionSuggestionCandidateWindow(
-        command->mutable_output());
-    return true;
-  }
-
-  if (live_conversion_active_ && context_->state() == ImeContext::CONVERSION) {
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    command->mutable_output()->set_live_conversion(true);
-    command->mutable_output()->set_live_conversion_pending(false);
-    AttachCachedLiveConversionSuggestionCandidateWindow(
-        command->mutable_output());
-    return true;
-  }
-
-  OutputFromState(command);
-  return true;
-}
-
-bool Session::ApplyDelayedLiveConversion(commands::Command* command) {
-  command->mutable_output()->set_consumed(true);
-
-  const commands::SessionCommand& session_command =
-      command->input().command();
-
-  if (!live_conversion_pending_) {
-    return IgnoreStaleDelayedLiveConversion(command);
-  }
-
-  if (!session_command.has_live_conversion_generation() ||
-      session_command.live_conversion_generation() !=
-          pending_live_conversion_generation_) {
-    return IgnoreStaleDelayedLiveConversion(command);
-  }
-
-  if (!session_command.has_live_conversion_key() ||
-      session_command.live_conversion_key() != pending_live_conversion_key_) {
-    return IgnoreStaleDelayedLiveConversion(command);
-  }
-
-  if (context_->state() != ImeContext::COMPOSITION) {
-    return IgnoreStaleDelayedLiveConversion(command);
-  }
-
-  const std::string current_key = context_->composer().GetQueryForConversion();
-  if (current_key != pending_live_conversion_key_) {
-    return IgnoreStaleDelayedLiveConversion(command);
-  }
-
-  const size_t length = context_->composer().GetLength();
-  const bool should_skip_live_conversion =
-      ShouldSkipLiveConversionForCompositionKey(
-          current_key,
-          GetLiveConversionCommittedLeftBoundary(*context_),
-          GetLiveConversionMinKeyLength(context_->GetConfig()));
-  const bool cursor_at_end = length == context_->composer().GetCursor();
-
-  if (should_skip_live_conversion || !cursor_at_end) {
-    if (should_skip_live_conversion && cursor_at_end &&
-        ShouldKeepPendingLiveConversionForTransientSokuon(current_key)) {
-      OutputPendingLiveConversion(command);
-      AttachCachedLiveConversionSuggestionCandidateWindow(
-          command->mutable_output());
-      return true;
-    }
-
-    CancelPendingLiveConversion();
-    OutputFromState(command);
-    return true;
-  }
-
-  return MaybeStartLiveConversion(command);
-}
 
 std::string Session::BuildZenzFeedbackContextClass(
     absl::string_view left_context) const {
   const ZenzContextSanitizationResult result =
       zenz_context_sanitizer_.SanitizeForZenz(
-          left_context, GetZenzLiveCorrectionLeftContextLength(
+          left_context, GetZenzConversionLeftContextLength(
                             context_->GetConfig()));
 
   // Do not persist raw context or reversible context snippets.  Feedback uses
@@ -4800,7 +2850,7 @@ std::string Session::BuildZenzFeedbackContextClass(
   return result.context_class.empty() ? "empty" : result.context_class;
 }
 
-void Session::RecordZenzLiveCorrectionAccepted(
+void Session::RecordZenzConversionAccepted(
     absl::string_view key,
     absl::string_view left_context,
     absl::string_view value) {
@@ -4814,7 +2864,7 @@ void Session::RecordZenzLiveCorrectionAccepted(
   }
 
   const ZenzTextPrivacyDecision key_privacy =
-      EvaluateZenzLiveKeyPrivacy(key);
+      EvaluateZenzConversionKeyPrivacy(key);
   if (!key_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip accepted key_privacy reason=",
@@ -4825,7 +2875,7 @@ void Session::RecordZenzLiveCorrectionAccepted(
   }
 
   const ZenzTextPrivacyDecision value_privacy =
-      EvaluateZenzLiveValuePrivacy(value);
+      EvaluateZenzConversionValuePrivacy(value);
   if (!value_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip accepted value_privacy reason=",
@@ -4872,7 +2922,7 @@ bool Session::MaybeLearnZenzCandidateToMozcHistory(
   }
 
   const ZenzTextPrivacyDecision key_privacy =
-      EvaluateZenzLiveKeyPrivacy(key);
+      EvaluateZenzConversionKeyPrivacy(key);
   if (!key_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip mozc history key_privacy reason=",
@@ -4883,7 +2933,7 @@ bool Session::MaybeLearnZenzCandidateToMozcHistory(
   }
 
   const ZenzTextPrivacyDecision value_privacy =
-      EvaluateZenzLiveValuePrivacy(value);
+      EvaluateZenzConversionValuePrivacy(value);
   if (!value_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip mozc history value_privacy reason=",
@@ -4931,7 +2981,7 @@ int Session::MaybeLearnZenzProjectedSegmentsToMozcHistory(
     }
 
     const ZenzTextPrivacyDecision key_privacy =
-        EvaluateZenzLiveKeyPrivacy(key);
+        EvaluateZenzConversionKeyPrivacy(key);
     if (!key_privacy.allow) {
       ZenzDebugOutput(absl::StrCat(
           "[zenz-feedback] skip projected mozc history key_privacy reason=",
@@ -4942,7 +2992,7 @@ int Session::MaybeLearnZenzProjectedSegmentsToMozcHistory(
     }
 
     const ZenzTextPrivacyDecision value_privacy =
-        EvaluateZenzLiveValuePrivacy(value);
+        EvaluateZenzConversionValuePrivacy(value);
     if (!value_privacy.allow) {
       ZenzDebugOutput(absl::StrCat(
           "[zenz-feedback] skip projected mozc history value_privacy reason=",
@@ -4962,31 +3012,15 @@ int Session::MaybeLearnZenzProjectedSegmentsToMozcHistory(
   return static_cast<int>(external_segments.size());
 }
 
-bool Session::HasVisibleZenzLiveCorrection() const {
-  if (zenz_live_visible_generation_ == 0 ||
-      zenz_live_key_.empty() ||
-      zenz_live_value_.empty() ||
-      zenz_live_mozc_value_.empty()) {
+bool Session::HasVisibleZenzConversion() const {
+  if (zenz_conversion_visible_generation_ == 0 ||
+      zenz_conversion_key_.empty() || zenz_conversion_value_.empty() ||
+      zenz_conversion_mozc_value_.empty() ||
+      context_->state() != ImeContext::CONVERSION) {
     return false;
   }
-
-  if (!live_conversion_active_) {
-    return false;
-  }
-
-  if (context_->state() != ImeContext::CONVERSION) {
-    return false;
-  }
-
-  if (live_conversion_key_ != zenz_live_key_) {
-    return false;
-  }
-
-  if (live_conversion_value_ != zenz_live_mozc_value_) {
-    return false;
-  }
-
-  return true;
+  return zenz_conversion_key_ ==
+         context_->composer().GetQueryForConversion();
 }
 
 void Session::SetPendingZenzFeedbackAccepted(
@@ -5002,7 +3036,7 @@ void Session::SetPendingZenzFeedbackAccepted(
   }
 
   const ZenzTextPrivacyDecision key_privacy =
-      EvaluateZenzLiveKeyPrivacy(key);
+      EvaluateZenzConversionKeyPrivacy(key);
   if (!key_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip pending accepted key_privacy reason=",
@@ -5013,7 +3047,7 @@ void Session::SetPendingZenzFeedbackAccepted(
   }
 
   const ZenzTextPrivacyDecision value_privacy =
-      EvaluateZenzLiveValuePrivacy(value);
+      EvaluateZenzConversionValuePrivacy(value);
   if (!value_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip pending accepted value_privacy reason=",
@@ -5034,7 +3068,7 @@ void Session::SetPendingZenzFeedbackAccepted(
   pending_zenz_feedback_.final_committed_value.clear();
   const ZenzReverseLearningProjection reverse_learning_projection =
       BuildZenzReverseLearningSegmentsFromPreedit(
-          live_conversion_preedit_output_, key, value);
+          zenz_conversion_mozc_preedit_output_, key, value);
   pending_zenz_feedback_.reverse_learning_segments =
       reverse_learning_projection.changed_segments;
   pending_zenz_feedback_.reverse_projected_learning_segments =
@@ -5052,38 +3086,38 @@ void Session::SetPendingZenzFeedbackRejected(absl::string_view reason) {
     return;
   }
 
-  if (!HasVisibleZenzLiveCorrection()) {
+  if (!HasVisibleZenzConversion()) {
     return;
   }
 
   const ZenzTextPrivacyDecision key_privacy =
-      EvaluateZenzLiveKeyPrivacy(zenz_live_key_);
+      EvaluateZenzConversionKeyPrivacy(zenz_conversion_key_);
   if (!key_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip pending rejected key_privacy reason=",
         key_privacy.reason,
         " ",
-        ZenzRedactedTextStats("key", zenz_live_key_)));
+        ZenzRedactedTextStats("key", zenz_conversion_key_)));
     return;
   }
 
   const ZenzTextPrivacyDecision value_privacy =
-      EvaluateZenzLiveValuePrivacy(zenz_live_value_);
+      EvaluateZenzConversionValuePrivacy(zenz_conversion_value_);
   if (!value_privacy.allow) {
     ZenzDebugOutput(absl::StrCat(
         "[zenz-feedback] skip pending rejected value_privacy reason=",
         value_privacy.reason,
         " ",
-        ZenzRedactedTextStats("value", zenz_live_value_)));
+        ZenzRedactedTextStats("value", zenz_conversion_value_)));
     return;
   }
 
   pending_zenz_feedback_.pending = true;
   pending_zenz_feedback_.action = PendingZenzFeedback::Action::kRejected;
-  pending_zenz_feedback_.key = zenz_live_key_;
+  pending_zenz_feedback_.key = zenz_conversion_key_;
   pending_zenz_feedback_.context_class =
-      zenz_live_context_class_.empty() ? "empty" : zenz_live_context_class_;
-  pending_zenz_feedback_.value = zenz_live_value_;
+      zenz_conversion_context_class_.empty() ? "empty" : zenz_conversion_context_class_;
+  pending_zenz_feedback_.value = zenz_conversion_value_;
   pending_zenz_feedback_.reason = std::string(reason);
   pending_zenz_feedback_.has_final_committed_value = false;
   pending_zenz_feedback_.final_committed_value.clear();
@@ -5406,371 +3440,199 @@ void Session::HandlePendingZenzFeedbackForSessionCommand(
   }
 }
 
-void Session::CancelPendingZenzLiveCorrection() {
-  ++zenz_live_generation_;
-  pending_zenz_live_ = PendingZenzLiveCorrection();
+void Session::CancelPendingZenzConversion() {
+  ++zenz_conversion_generation_;
+  pending_zenz_conversion_ = PendingZenzConversion();
 
-  if (zenz_live_corrector_ != nullptr) {
-    zenz_live_corrector_->CancelPending();
+  if (zenz_conversion_service_ != nullptr) {
+    zenz_conversion_service_->CancelPending();
   }
 }
 
-void Session::ClearZenzLiveCorrectionState() {
-  ++zenz_live_generation_;
-  pending_zenz_live_ = PendingZenzLiveCorrection();
+void Session::ClearZenzConversionState() {
+  ++zenz_conversion_generation_;
+  pending_zenz_conversion_ = PendingZenzConversion();
 
-  if (zenz_live_corrector_ != nullptr) {
-    zenz_live_corrector_->CancelPending();
+  if (zenz_conversion_service_ != nullptr) {
+    zenz_conversion_service_->CancelPending();
   }
 
-  zenz_live_visible_generation_ = 0;
-  zenz_live_key_.clear();
-  zenz_live_display_key_.clear();
-  zenz_live_value_.clear();
-  zenz_live_mozc_value_.clear();
-  zenz_live_context_class_.clear();
-  zenz_live_left_context_.clear();
-  zenz_live_preedit_output_.Clear();
+  zenz_conversion_visible_generation_ = 0;
+  zenz_conversion_key_.clear();
+  zenz_conversion_display_key_.clear();
+  zenz_conversion_value_.clear();
+  zenz_conversion_mozc_value_.clear();
+  zenz_conversion_context_class_.clear();
+  zenz_conversion_left_context_.clear();
+  zenz_conversion_mozc_preedit_output_.Clear();
 }
 
-bool Session::MaybeApplyZenzFeedbackLiveCorrection(
+bool Session::MaybeApplyZenzFeedbackConversion(
     commands::Command* command) {
   const config::Config& config = context_->GetConfig();
-
-  if (!UseZenzFeedbackLearning(config)) {
+  if (!UseZenzFeedbackLearning(config) || !config.use_zenz_conversion() ||
+      context_->state() != ImeContext::CONVERSION ||
+      context_->composer().GetInputFieldType() == commands::Context::PASSWORD ||
+      !command->output().has_preedit() ||
+      command->output().preedit().segment_size() <= 1) {
     return false;
   }
-
-  if (!config.use_zenz_live_correction()) {
+  const std::string key = context_->composer().GetQueryForConversion();
+  const commands::Preedit mozc_preedit = command->output().preedit();
+  std::string mozc_value;
+  for (const commands::Preedit::Segment& segment : mozc_preedit.segment()) {
+    mozc_value.append(segment.value());
+  }
+  if (key.empty() || mozc_value.empty() ||
+      Util::CharsLen(key) < kMinimumZenzConversionKeyLength) {
     return false;
   }
-
-  if (!config.use_live_conversion()) {
-    return false;
-  }
-
-  if (!live_conversion_active_) {
-    return false;
-  }
-
-  if (context_->state() != ImeContext::CONVERSION) {
-    return false;
-  }
-
-  if (context_->composer().GetInputFieldType() == commands::Context::PASSWORD) {
-    return false;
-  }
-
-  if (live_conversion_key_.empty() || live_conversion_value_.empty()) {
-    return false;
-  }
-
-  // Single-segment feedback is handled by ZenzFeedbackCandidateRewriter in the
-  // converter rewriter chain, before UserSegmentHistoryRewriter.  Do not replay
-  // it again here as a session-level fast path; otherwise stale Zenz feedback
-  // can override a newer explicit user-history selection.
-  //
-  // Multi-segment live conversions cannot be safely represented by
-  // ZenzFeedbackCandidateRewriter without collapsing converter-owned segment
-  // boundaries.  Keep the fast path only for those full-phrase corrections.
-  if (live_conversion_preedit_output_.segment_size() <= 1) {
-    return false;
-  }
-
   const ZenzTextPrivacyDecision key_privacy =
-      EvaluateZenzLiveKeyPrivacy(live_conversion_key_);
-  if (!key_privacy.allow) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz-feedback] fast path skip key_privacy reason=",
-        key_privacy.reason,
-        " ",
-        ZenzRedactedTextStats("key", live_conversion_key_)));
+      EvaluateZenzConversionKeyPrivacy(key);
+  const ZenzTextPrivacyDecision value_privacy =
+      EvaluateZenzConversionValuePrivacy(mozc_value);
+  if (!key_privacy.allow || !value_privacy.allow) {
     return false;
   }
-
-  const ZenzTextPrivacyDecision mozc_value_privacy =
-      EvaluateZenzLiveValuePrivacy(live_conversion_value_);
-  if (!mozc_value_privacy.allow) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz-feedback] fast path skip mozc_value_privacy reason=",
-        mozc_value_privacy.reason,
-        " ",
-        ZenzRedactedTextStats("value", live_conversion_value_)));
-    return false;
-  }
-
-  const uint32_t min_key_len = GetZenzLiveCorrectionMinKeyLength(config);
-  if (Util::CharsLen(live_conversion_key_) < min_key_len) {
-    return false;
-  }
-
-  const uint32_t left_context_len =
-      GetZenzLiveCorrectionLeftContextLength(config);
-
-  const ZenzClientContextView zenz_client_context =
+  const std::vector<ProtectedConversionSpan> protected_spans =
+      BuildZenzProtectedConversionSpans(context_->converter(),
+                                        command->output(), key, mozc_value);
+  const ZenzClientContextView client_context =
       GetZenzClientContextView(context_->client_context());
   ZenzContextAssemblyInput context_input;
-  context_input.preceding_text = zenz_client_context.preceding_text;
-  context_input.left_max_chars = left_context_len;
-
+  context_input.preceding_text = client_context.preceding_text;
+  context_input.left_max_chars = GetZenzConversionLeftContextLength(config);
   const ZenzContextAssemblyResult assembled_context =
       zenz_context_assembler_.Assemble(context_input);
-
-  const std::string& left_context_for_validation =
-      assembled_context.left.prompt_context;
-
   const std::string context_class =
       assembled_context.left.context_class.empty()
           ? std::string("empty")
           : assembled_context.left.context_class;
-
-  const std::vector<ZenzFeedbackCandidate> feedback_candidates =
+  const std::vector<ZenzFeedbackCandidate> candidates =
       zenz_feedback_store_.GetAcceptedCandidates(
-          live_conversion_key_, context_class,
-          GetZenzFeedbackAutoBlockPolicy(config));
-
-  if (feedback_candidates.empty()) {
-    return false;
-  }
-
-  for (const ZenzFeedbackCandidate& feedback_candidate :
-       feedback_candidates) {
-    const std::string& feedback_value = feedback_candidate.value;
-
-    const ZenzTextPrivacyDecision feedback_value_privacy =
-        EvaluateZenzLiveValuePrivacy(feedback_value);
-    if (!feedback_value_privacy.allow) {
-      ZenzDebugOutput(absl::StrCat(
-          "[zenz-feedback] fast path candidate rejected reason=value_privacy_",
-          feedback_value_privacy.reason,
-          " ",
-          ZenzRedactedTextStats("key", live_conversion_key_),
-          " ",
-          ZenzRedactedTextStats("value", feedback_value),
-          " context_class=", context_class,
-          " accepted_count=", feedback_candidate.accepted_count,
-          " rejected_count=", feedback_candidate.rejected_count));
+          key, context_class, GetZenzFeedbackAutoBlockPolicy(config));
+  for (const ZenzFeedbackCandidate& candidate : candidates) {
+    if (!EvaluateZenzConversionValuePrivacy(candidate.value).allow) {
       continue;
     }
-
     ZenzValidationInput validation_input;
-    validation_input.key = live_conversion_key_;
-    validation_input.mozc_value = live_conversion_value_;
-    validation_input.zenz_value = feedback_value;
-    validation_input.left_context = left_context_for_validation;
-    validation_input.min_key_length = min_key_len;
+    validation_input.key = key;
+    validation_input.mozc_value = mozc_value;
+    validation_input.zenz_value = candidate.value;
+    validation_input.left_context = assembled_context.left.prompt_context;
+    validation_input.min_key_length = kMinimumZenzConversionKeyLength;
     validation_input.allow_synthetic_candidate =
-        config.use_zenz_synthetic_candidate();
-
-    const ZenzValidationResult validation =
-        zenz_output_validator_.Validate(validation_input);
-
-    if (!validation.accept) {
-      ZenzDebugOutput(absl::StrCat(
-          "[zenz-feedback] fast path candidate rejected reason=",
-          validation.reason,
-          " ", ZenzRedactedTextStats("key", live_conversion_key_),
-          " ", ZenzRedactedTextStats("value", feedback_value),
-          " context_class=", context_class,
-          " accepted_count=", feedback_candidate.accepted_count,
-          " rejected_count=", feedback_candidate.rejected_count));
+        config.allow_zenz_synthetic_candidate();
+    if (!zenz_output_validator_.Validate(validation_input).accept) {
       continue;
     }
-
     ZenzAdoptionInput adoption_input;
-    adoption_input.key = live_conversion_key_;
-    adoption_input.mozc_value = live_conversion_value_;
-    adoption_input.zenz_value = feedback_value;
-    adoption_input.protected_spans = live_conversion_protected_spans_;
-
+    adoption_input.key = key;
+    adoption_input.mozc_value = mozc_value;
+    adoption_input.zenz_value = candidate.value;
+    adoption_input.protected_spans = protected_spans;
     const ZenzAdoptionResult adoption =
         zenz_adoption_policy_.Decide(adoption_input);
     if (adoption.action == ZenzAdoptionResult::Action::kReject) {
-      ZenzDebugOutput(absl::StrCat(
-          "[zenz-feedback] fast path candidate rejected reason=",
-          adoption.reason,
-          " ", ZenzRedactedTextStats("key", live_conversion_key_),
-          " ", ZenzRedactedTextStats("value", feedback_value),
-          " context_class=", context_class,
-          " accepted_count=", feedback_candidate.accepted_count,
-          " rejected_count=", feedback_candidate.rejected_count));
       continue;
     }
-
-    const std::string adopted_feedback_value = adoption.value;
-
-    ++zenz_live_generation_;
-    pending_zenz_live_ = PendingZenzLiveCorrection();
-
-    zenz_live_visible_generation_ = zenz_live_generation_;
-    zenz_live_key_ = live_conversion_key_;
-    zenz_live_display_key_ = live_conversion_preedit_.empty()
-                                 ? live_conversion_key_
-                                 : live_conversion_preedit_;
-    zenz_live_value_ = adopted_feedback_value;
-    zenz_live_mozc_value_ = live_conversion_value_;
-    zenz_live_context_class_ = context_class;
-    zenz_live_left_context_ = left_context_for_validation;
-
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz-feedback] fast path applied ",
-        ZenzRedactedTextStats("key", zenz_live_key_),
-        " ", ZenzRedactedTextStats("value", zenz_live_value_),
-        " ", ZenzRedactedTextStats("mozc_value", zenz_live_mozc_value_),
-        " adoption=", adoption.reason,
-        " context_class=", zenz_live_context_class_,
-        " accepted_count=", feedback_candidate.accepted_count,
-        " rejected_count=", feedback_candidate.rejected_count));
-
-    return OutputZenzLiveCorrection(adopted_feedback_value, command);
+    ++zenz_conversion_generation_;
+    pending_zenz_conversion_ = PendingZenzConversion();
+    zenz_conversion_visible_generation_ = zenz_conversion_generation_;
+    zenz_conversion_key_ = key;
+    zenz_conversion_display_key_ = key;
+    zenz_conversion_value_ = adoption.value;
+    zenz_conversion_mozc_value_ = mozc_value;
+    zenz_conversion_context_class_ = context_class;
+    zenz_conversion_left_context_ = assembled_context.left.prompt_context;
+    zenz_conversion_mozc_preedit_output_ = mozc_preedit;
+    return OutputZenzConversion(adoption.value, command);
   }
-
   return false;
 }
 
-bool Session::MaybeScheduleZenzLiveCorrection(commands::Command* command) {
+bool Session::MaybeScheduleZenzConversion(commands::Command* command) {
   const config::Config& config = context_->GetConfig();
-
-  if (!config.use_zenz_live_correction()) {
+  if (!config.use_zenz_conversion() ||
+      context_->state() != ImeContext::CONVERSION ||
+      context_->composer().GetInputFieldType() == commands::Context::PASSWORD ||
+      !command->output().has_preedit()) {
     return false;
   }
-
-  if (!config.use_live_conversion()) {
+  const std::string key = context_->composer().GetQueryForConversion();
+  const commands::Preedit mozc_preedit = command->output().preedit();
+  std::string mozc_value;
+  for (const commands::Preedit::Segment& segment : mozc_preedit.segment()) {
+    mozc_value.append(segment.value());
+  }
+  if (key.empty() || mozc_value.empty() ||
+      Util::CharsLen(key) < kMinimumZenzConversionKeyLength) {
     return false;
   }
-
-  if (!live_conversion_active_) {
-    return false;
-  }
-
-  if (context_->state() != ImeContext::CONVERSION) {
-    return false;
-  }
-
-  if (context_->composer().GetInputFieldType() == commands::Context::PASSWORD) {
-    return false;
-  }
-
-  if (live_conversion_key_.empty() || live_conversion_value_.empty()) {
-    return false;
-  }
-
   const ZenzTextPrivacyDecision key_privacy =
-      EvaluateZenzLiveKeyPrivacy(live_conversion_key_);
-  if (!key_privacy.allow) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] skip key_privacy reason=",
-        key_privacy.reason,
-        " ",
-        ZenzRedactedTextStats("key", live_conversion_key_)));
+      EvaluateZenzConversionKeyPrivacy(key);
+  const ZenzTextPrivacyDecision value_privacy =
+      EvaluateZenzConversionValuePrivacy(mozc_value);
+  if (!key_privacy.allow || !value_privacy.allow) {
     return false;
   }
-
-  const ZenzTextPrivacyDecision mozc_value_privacy =
-      EvaluateZenzLiveValuePrivacy(live_conversion_value_);
-  if (!mozc_value_privacy.allow) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] skip mozc_value_privacy reason=",
-        mozc_value_privacy.reason,
-        " ",
-        ZenzRedactedTextStats("value", live_conversion_value_)));
-    return false;
-  }
-
-  const uint32_t min_key_len = GetZenzLiveCorrectionMinKeyLength(config);
-  if (Util::CharsLen(live_conversion_key_) < min_key_len) {
-    return false;
-  }
-
-  const uint32_t left_context_len =
-      GetZenzLiveCorrectionLeftContextLength(config);
-  const uint32_t right_context_len =
-      GetZenzLiveCorrectionRightContextLength(config);
-
-  const ZenzClientContextView zenz_client_context =
+  const std::vector<ProtectedConversionSpan> protected_spans =
+      BuildZenzProtectedConversionSpans(context_->converter(),
+                                        command->output(), key, mozc_value);
+  const ZenzClientContextView client_context =
       GetZenzClientContextView(context_->client_context());
   ZenzContextAssemblyInput context_input;
-  context_input.preceding_text = zenz_client_context.preceding_text;
-  context_input.following_text = zenz_client_context.following_text;
-  context_input.left_max_chars = left_context_len;
-  context_input.right_max_chars = right_context_len;
-
+  context_input.preceding_text = client_context.preceding_text;
+  context_input.following_text = client_context.following_text;
+  context_input.left_max_chars = GetZenzConversionLeftContextLength(config);
+  context_input.right_max_chars = GetZenzConversionRightContextLength(config);
   const ZenzContextAssemblyResult assembled_context =
       zenz_context_assembler_.Assemble(context_input);
-
-  const std::string& left_context_for_prompt =
-      assembled_context.left.prompt_context;
-  const std::string& right_context_for_prompt =
-      assembled_context.right.prompt_context;
-
   ZenzPromptOptions prompt_options;
-  prompt_options.left_context = left_context_for_prompt;
-  prompt_options.right_context = right_context_for_prompt;
-  prompt_options.profile = config.zenz_live_correction_profile();
-  prompt_options.topic = config.zenz_live_correction_topic();
-  prompt_options.style = config.zenz_live_correction_style();
-  prompt_options.settings = config.zenz_live_correction_settings();
-
+  prompt_options.left_context = assembled_context.left.prompt_context;
+  prompt_options.right_context = assembled_context.right.prompt_context;
+  prompt_options.profile = config.zenz_profile();
+  prompt_options.topic = config.zenz_topic();
+  prompt_options.style = config.zenz_style();
+  prompt_options.settings = config.zenz_settings();
   ZenzProtectedPromptInput protected_prompt_input;
-  protected_prompt_input.key = live_conversion_key_;
-  protected_prompt_input.protected_spans = live_conversion_protected_spans_;
+  protected_prompt_input.key = key;
+  protected_prompt_input.protected_spans = protected_spans;
   const ZenzProtectedPromptResult protected_prompt =
       zenz_adoption_policy_.ProtectPromptKey(protected_prompt_input);
-
   ZenzPromptBuilder prompt_builder;
-  const std::string prompt =
+  ++zenz_conversion_generation_;
+  pending_zenz_conversion_ = PendingZenzConversion();
+  pending_zenz_conversion_.generation = zenz_conversion_generation_;
+  pending_zenz_conversion_.key = key;
+  pending_zenz_conversion_.left_context =
+      assembled_context.left.prompt_context;
+  pending_zenz_conversion_.right_context =
+      assembled_context.right.prompt_context;
+  pending_zenz_conversion_.context_class =
+      assembled_context.left.context_class;
+  pending_zenz_conversion_.mozc_value = mozc_value;
+  pending_zenz_conversion_.symbol_style_source = key;
+  pending_zenz_conversion_.prompt =
       prompt_builder.Build(protected_prompt.key, prompt_options);
-
-  ++zenz_live_generation_;
-
-  pending_zenz_live_.generation = zenz_live_generation_;
-  pending_zenz_live_.key = live_conversion_key_;
-  pending_zenz_live_.left_context = left_context_for_prompt;
-  pending_zenz_live_.right_context = right_context_for_prompt;
-  pending_zenz_live_.context_class = assembled_context.left.context_class;
-  pending_zenz_live_.mozc_value = live_conversion_value_;
-  pending_zenz_live_.symbol_style_source =
-      live_conversion_preedit_.empty() ? live_conversion_key_
-                                       : live_conversion_preedit_;
-  pending_zenz_live_.prompt = prompt;
-  pending_zenz_live_.protected_spans = protected_prompt.protected_spans;
-  pending_zenz_live_.issued_at = Clock::GetAbslTime();
-  pending_zenz_live_.pending = true;
-  pending_zenz_live_.submitted = false;
-  pending_zenz_live_.poll_count = 0;
-
+  pending_zenz_conversion_.mozc_preedit_output = mozc_preedit;
+  pending_zenz_conversion_.protected_spans = protected_prompt.protected_spans;
+  pending_zenz_conversion_.issued_at = Clock::GetAbslTime();
+  pending_zenz_conversion_.pending = true;
+  pending_zenz_conversion_.submitted = false;
+  pending_zenz_conversion_.poll_count = 0;
   ZenzDebugOutput(absl::StrCat(
-      "[zenz] scheduled ",
-      ZenzRedactedTextStats("key", live_conversion_key_),
-      " ", ZenzRedactedTextStats("mozc_value", live_conversion_value_),
-      " context_class=", assembled_context.left.context_class,
-      " context_allowed=",
-      ZenzBool(assembled_context.left.allowed_for_prompt),
-      " context_reason=", assembled_context.left.reason,
-      " right_context_allowed=",
-      ZenzBool(assembled_context.right.allowed_for_prompt),
-      " right_context_reason=", assembled_context.right.reason,
-      " protected_prompt_replacements=",
-      protected_prompt.placeholder_count));
-
-  const uint32_t delay_msec = GetZenzLiveCorrectionDelayMsec(config);
-  if (delay_msec == 0) {
-    ZenzDebugOutput("[zenz] start immediately");
-    // The current command already contains the freshly generated live
-    // conversion output from MaybeStartLiveConversion().  Do not call
-    // Output() again in the same key-event path, because PopOutput() is
-    // destructive and a second output refresh can momentarily duplicate the
-    // composition text on some TSF clients.
-    return AdvancePendingZenzLiveCorrection(
-        command, /*refresh_output_on_submit=*/false);
-  }
-
-  AttachZenzLiveCorrectionStartCallback(command);
-  command->mutable_output()->set_zenz_live_correction_pending(true);
-  return true;
+      "[zenz] normal conversion request ", ZenzRedactedTextStats("key", key),
+      " ", ZenzRedactedTextStats("mozc_value", mozc_value),
+      " context_class=", pending_zenz_conversion_.context_class,
+      " context_allowed=", ZenzBool(assembled_context.left.allowed_for_prompt),
+      " right_context_allowed=", ZenzBool(assembled_context.right.allowed_for_prompt)));
+  command->mutable_output()->set_zenz_conversion_pending(true);
+  return AdvancePendingZenzConversion(
+      command, /*refresh_output_on_submit=*/false);
 }
 
-void Session::AttachZenzLiveCorrectionStartCallback(
+void Session::AttachZenzConversionPollCallback(
     commands::Command* command) const {
   commands::Output::Callback* callback =
       command->mutable_output()->mutable_callback();
@@ -5778,874 +3640,296 @@ void Session::AttachZenzLiveCorrectionStartCallback(
       callback->mutable_session_command();
 
   session_command->set_type(
-      commands::SessionCommand::APPLY_ZENZ_LIVE_CORRECTION);
-  session_command->set_live_conversion_generation(
-      pending_zenz_live_.generation);
-  session_command->set_live_conversion_key(pending_zenz_live_.key);
+      commands::SessionCommand::APPLY_ZENZ_CONVERSION);
+  session_command->set_zenz_conversion_generation(
+      pending_zenz_conversion_.generation);
+  session_command->set_zenz_conversion_key(pending_zenz_conversion_.key);
 
-  callback->set_delay_millisec(
-      GetZenzLiveCorrectionDelayMsec(context_->GetConfig()));
+  callback->set_delay_millisec(kDefaultZenzConversionPollMsec);
 }
 
-void Session::AttachZenzLiveCorrectionPollCallback(
-    commands::Command* command) const {
-  commands::Output::Callback* callback =
-      command->mutable_output()->mutable_callback();
-  commands::SessionCommand* session_command =
-      callback->mutable_session_command();
-
-  session_command->set_type(
-      commands::SessionCommand::APPLY_ZENZ_LIVE_CORRECTION);
-  session_command->set_live_conversion_generation(
-      pending_zenz_live_.generation);
-  session_command->set_live_conversion_key(pending_zenz_live_.key);
-
-  callback->set_delay_millisec(kDefaultZenzLiveCorrectionPollMsec);
-}
-
-bool Session::IsCurrentZenzLiveCorrectionCallback(
+bool Session::IsCurrentZenzConversionCallback(
     const commands::Command& command) const {
-  if (!pending_zenz_live_.pending) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=no_pending_zenz",
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " ", ZenzRedactedTextStats("zenz_key", zenz_live_key_),
-        " ", ZenzRedactedTextStats("zenz_value", zenz_live_value_),
-        " state=", static_cast<int>(context_->state())));
+  if (!pending_zenz_conversion_.pending ||
+      context_->state() != ImeContext::CONVERSION ||
+      context_->composer().GetQueryForConversion() !=
+          pending_zenz_conversion_.key ||
+      !command.input().has_command()) {
     return false;
   }
-
-  if (!command.input().has_command()) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=no_input_command"
-        " pending_gen=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " context_class=", pending_zenz_live_.context_class,
-        " state=", static_cast<int>(context_->state())));
-    return false;
-  }
-
   const commands::SessionCommand& session_command = command.input().command();
-
-  if (!session_command.has_live_conversion_generation() ||
-      session_command.live_conversion_generation() !=
-          pending_zenz_live_.generation) {
-    const std::string callback_gen =
-        session_command.has_live_conversion_generation()
-            ? absl::StrCat(session_command.live_conversion_generation())
-            : "(none)";
-    const std::string callback_key =
-        session_command.has_live_conversion_key()
-            ? session_command.live_conversion_key()
-            : std::string();
-
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=generation_mismatch"
-        " callback_gen=", callback_gen,
-        " pending_gen=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("callback_key", callback_key),
-        " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " ", ZenzRedactedTextStats("pending_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class,
-        " state=", static_cast<int>(context_->state())));
-    return false;
-  }
-
-  if (!session_command.has_live_conversion_key() ||
-      session_command.live_conversion_key() != pending_zenz_live_.key) {
-    const std::string callback_key =
-        session_command.has_live_conversion_key()
-            ? session_command.live_conversion_key()
-            : std::string();
-
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=callback_key_mismatch"
-        " ", ZenzRedactedTextStats("callback_key", callback_key),
-        " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-        " pending_gen=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " ", ZenzRedactedTextStats("pending_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class,
-        " state=", static_cast<int>(context_->state())));
-    return false;
-  }
-
-  if (context_->state() != ImeContext::CONVERSION) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=state_not_conversion"
-        " state=", static_cast<int>(context_->state()),
-        " pending_gen=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " ", ZenzRedactedTextStats("pending_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class));
-    return false;
-  }
-
-  if (!live_conversion_active_) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=live_conversion_not_active"
-        " pending_gen=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " ", ZenzRedactedTextStats("pending_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class,
-        " state=", static_cast<int>(context_->state())));
-    return false;
-  }
-
-  if (live_conversion_key_ != pending_zenz_live_.key) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=live_key_mismatch",
-        " pending_gen=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " ", ZenzRedactedTextStats("pending_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class,
-        " state=", static_cast<int>(context_->state())));
-    return false;
-  }
-
-  if (live_conversion_value_ != pending_zenz_live_.mozc_value) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stale reason=live_value_mismatch"
-        " ", ZenzRedactedTextStats("live_key", live_conversion_key_),
-        " ", ZenzRedactedTextStats("pending_key", pending_zenz_live_.key),
-        " pending_gen=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("live_value", live_conversion_value_),
-        " ", ZenzRedactedTextStats("pending_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class,
-        " state=", static_cast<int>(context_->state())));
-    return false;
-  }
-
-  return true;
+  return session_command.has_zenz_conversion_generation() &&
+         session_command.zenz_conversion_generation() ==
+             pending_zenz_conversion_.generation &&
+         session_command.has_zenz_conversion_key() &&
+         session_command.zenz_conversion_key() ==
+             pending_zenz_conversion_.key;
 }
 
-bool Session::OutputCurrentLiveConversionWithZenzPending(
+bool Session::OutputConversionWithZenzPending(
     commands::Command* command) {
   command->mutable_output()->set_consumed(true);
-
-  if (live_conversion_active_ && context_->state() == ImeContext::CONVERSION) {
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    commands::Output* output = command->mutable_output();
-    output->set_live_conversion(true);
-    output->set_live_conversion_pending(false);
-    output->set_zenz_live_correction_pending(true);
-    AttachCachedLiveConversionSuggestionCandidateWindow(output);
-    return true;
-  }
-
-  OutputFromState(command);
+  Output(command);
+  command->mutable_output()->set_zenz_conversion_pending(true);
   return true;
 }
 
-bool Session::OutputCurrentLiveConversionAfterZenzStop(
+bool Session::OutputConversionAfterZenzStop(
     commands::Command* command,
     absl::string_view debug) {
   command->mutable_output()->set_consumed(true);
-
-  if (live_conversion_active_ && context_->state() == ImeContext::CONVERSION) {
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    commands::Output* output = command->mutable_output();
-    output->set_live_conversion(true);
-    output->set_live_conversion_pending(false);
-    output->set_zenz_live_correction_pending(false);
-    if (!debug.empty()) {
-      output->set_zenz_live_correction_debug(std::string(debug));
-    }
-    AttachCachedLiveConversionSuggestionCandidateWindow(output);
-    return true;
-  }
-
-  OutputFromState(command);
+  Output(command);
+  command->mutable_output()->set_zenz_conversion_pending(false);
   if (!debug.empty()) {
-    command->mutable_output()->set_zenz_live_correction_debug(
-        std::string(debug));
+    command->mutable_output()->set_zenz_debug(std::string(debug));
   }
   return true;
 }
 
-ZenzLiveCorrector* Session::EnsureZenzLiveCorrector() {
-  if (zenz_live_corrector_ == nullptr) {
-    zenz_live_corrector_ =
-        std::make_unique<ZenzLiveCorrector>(CreateZenzClient());
+ZenzConversionService* Session::EnsureZenzConversionService() {
+  if (zenz_conversion_service_ == nullptr) {
+    zenz_conversion_service_ =
+        std::make_unique<ZenzConversionService>(CreateZenzClient());
   }
-  return zenz_live_corrector_.get();
+  return zenz_conversion_service_.get();
 }
 
-bool Session::ApplyZenzLiveCorrection(commands::Command* command) {
-  ZenzDebugOutput("[zenz] ApplyZenzLiveCorrection called");
+bool Session::ApplyZenzConversion(commands::Command* command) {
+  ZenzDebugOutput("[zenz] ApplyZenzConversion called");
   command->mutable_output()->set_consumed(true);
 
-  if (!IsCurrentZenzLiveCorrectionCallback(*command)) {
+  if (!IsCurrentZenzConversionCallback(*command)) {
     ZenzDebugOutput("[zenz] stale zenz callback");
-    return IgnoreStaleDelayedLiveConversion(command);
+    return DoNothing(command);
   }
 
-  return AdvancePendingZenzLiveCorrection(
+  return AdvancePendingZenzConversion(
       command, /*refresh_output_on_submit=*/true);
 }
 
-bool Session::AdvancePendingZenzLiveCorrection(
+bool Session::AdvancePendingZenzConversion(
     commands::Command* command,
     const bool refresh_output_on_submit) {
   command->mutable_output()->set_consumed(true);
-
   const config::Config& config = context_->GetConfig();
   const absl::Time now = Clock::GetAbslTime();
-  const uint32_t timeout_msec = GetZenzLiveCorrectionTimeoutMsec(config);
+  const uint32_t timeout_msec = GetZenzConversionTimeoutMsec(config);
 
-  if (!pending_zenz_live_.submitted) {
-    pending_zenz_live_.issued_at = now;
-    pending_zenz_live_.submitted = true;
-    pending_zenz_live_.poll_count = 0;
-
-    ZenzLiveRequest request;
-    request.generation = pending_zenz_live_.generation;
-    request.key = pending_zenz_live_.key;
-    request.prompt = pending_zenz_live_.prompt;
-    request.left_context = pending_zenz_live_.left_context;
-    request.mozc_value = pending_zenz_live_.mozc_value;
-    request.pipe_name = config.zenz_live_correction_pipe_name();
+  if (!pending_zenz_conversion_.submitted) {
+    pending_zenz_conversion_.issued_at = now;
+    pending_zenz_conversion_.submitted = true;
+    pending_zenz_conversion_.poll_count = 0;
+    ZenzConversionRequest request;
+    request.generation = pending_zenz_conversion_.generation;
+    request.key = pending_zenz_conversion_.key;
+    request.prompt = pending_zenz_conversion_.prompt;
+    request.left_context = pending_zenz_conversion_.left_context;
+    request.mozc_value = pending_zenz_conversion_.mozc_value;
+    request.pipe_name = config.zenz_pipe_name();
     request.timeout_msec = timeout_msec;
     request.max_output_chars = 256;
-    request.issued_at = pending_zenz_live_.issued_at;
-
+    request.issued_at = pending_zenz_conversion_.issued_at;
     ZenzPromptBuilder prompt_builder;
     request.reading_katakana =
-        prompt_builder.HiraganaToKatakana(pending_zenz_live_.key);
-
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] async submit pipe_configured=",
-        config.zenz_live_correction_pipe_name().empty() ? "false" : "true",
-        " generation=", pending_zenz_live_.generation,
-        " ", ZenzRedactedTextStats("key", pending_zenz_live_.key),
-        " ", ZenzRedactedTextStats("mozc_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class,
-        " ", ZenzRedactedTextStats("context",
-                                    pending_zenz_live_.left_context),
-        " ", ZenzRedactedTextStats("right_context",
-                                    pending_zenz_live_.right_context)));
-
-    EnsureZenzLiveCorrector()->Submit(std::move(request));
+        prompt_builder.HiraganaToKatakana(pending_zenz_conversion_.key);
+    EnsureZenzConversionService()->Submit(std::move(request));
 
     bool result = true;
     if (refresh_output_on_submit) {
-      result = OutputCurrentLiveConversionWithZenzPending(command);
+      result = OutputConversionWithZenzPending(command);
     } else {
-      commands::Output* output = command->mutable_output();
-      output->set_live_conversion(true);
-      output->set_live_conversion_pending(false);
-      output->set_zenz_live_correction_pending(true);
-      AttachCachedLiveConversionSuggestionCandidateWindow(output);
+      command->mutable_output()->set_zenz_conversion_pending(true);
     }
-    AttachZenzLiveCorrectionPollCallback(command);
+    AttachZenzConversionPollCallback(command);
     return result;
   }
 
-  if (zenz_live_corrector_ == nullptr) {
-    ZenzDebugOutput("[zenz] async corrector missing");
-    CancelPendingZenzLiveCorrection();
-    return OutputCurrentLiveConversionAfterZenzStop(
-        command, "zenz_async_corrector_missing");
+  if (zenz_conversion_service_ == nullptr) {
+    CancelPendingZenzConversion();
+    return OutputConversionAfterZenzStop(
+        command, "zenz_conversion_service_missing");
   }
-
-  std::optional<ZenzLiveResponse> response =
-      zenz_live_corrector_->TakeResult(pending_zenz_live_.generation);
-
+  std::optional<ZenzConversionResponse> response =
+      zenz_conversion_service_->TakeResult(pending_zenz_conversion_.generation);
   if (response.has_value()) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] async response ok=", ZenzBool(response->ok),
-        " timeout=", ZenzBool(response->timeout),
-        " generation=", response->generation,
-        " ", ZenzRedactedTextStats("value", response->value),
-        " ", ZenzRedactedTextStats("debug", response->debug)));
-
-    return ApplyZenzLiveCorrectionResult(*response, command);
+    return ApplyZenzConversionResult(*response, command);
   }
 
-  ++pending_zenz_live_.poll_count;
-
+  ++pending_zenz_conversion_.poll_count;
   const uint32_t async_wait_msec =
-      std::max<uint32_t>(timeout_msec, kZenzLiveCorrectionAsyncWaitMsec);
-
-  const uint32_t max_poll_count =
-      std::max<uint32_t>(
-          1,
-          async_wait_msec / kDefaultZenzLiveCorrectionPollMsec + 2);
-
+      std::max<uint32_t>(timeout_msec, kZenzConversionAsyncWaitMsec);
+  const uint32_t max_poll_count = std::max<uint32_t>(
+      1, async_wait_msec / kDefaultZenzConversionPollMsec + 2);
   const bool timed_out =
-      now - pending_zenz_live_.issued_at >=
+      now - pending_zenz_conversion_.issued_at >=
       absl::Milliseconds(async_wait_msec);
-
-  if (timed_out || pending_zenz_live_.poll_count >= max_poll_count) {
-    const std::string reason =
-        timed_out ? "zenz_async_timeout" : "zenz_async_poll_exhausted";
-
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] async no result reason=", reason,
-        " generation=", pending_zenz_live_.generation,
-        " poll_count=", pending_zenz_live_.poll_count,
-        " timeout_msec=", timeout_msec,
-        " async_wait_msec=", async_wait_msec,
-        " ", ZenzRedactedTextStats("key", pending_zenz_live_.key),
-        " ", ZenzRedactedTextStats("mozc_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", pending_zenz_live_.context_class));
-
-    CancelPendingZenzLiveCorrection();
-    return OutputCurrentLiveConversionAfterZenzStop(command, reason);
+  if (timed_out || pending_zenz_conversion_.poll_count >= max_poll_count) {
+    CancelPendingZenzConversion();
+    return OutputConversionAfterZenzStop(
+        command, timed_out ? "zenz_conversion_timeout"
+                           : "zenz_conversion_poll_exhausted");
   }
 
-  ZenzDebugOutput(absl::StrCat(
-      "[zenz] async pending generation=", pending_zenz_live_.generation,
-      " poll_count=", pending_zenz_live_.poll_count,
-      " ", ZenzRedactedTextStats("key", pending_zenz_live_.key),
-      " context_class=", pending_zenz_live_.context_class));
-
-  const bool result = OutputCurrentLiveConversionWithZenzPending(command);
-  AttachZenzLiveCorrectionPollCallback(command);
+  const bool result = OutputConversionWithZenzPending(command);
+  AttachZenzConversionPollCallback(command);
   return result;
 }
 
-bool Session::ApplyZenzLiveCorrectionResult(
-    const ZenzLiveResponse& response,
+bool Session::ApplyZenzConversionResult(
+    const ZenzConversionResponse& response,
     commands::Command* command) {
   const config::Config& config = context_->GetConfig();
-
-  if (!response.ok || response.timeout) {
-    const std::string debug =
-        response.debug.empty()
-            ? "zenz_response_not_ok"
-            : ZenzSafeDebugReason(response.debug);
-
-    CancelPendingZenzLiveCorrection();
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    command->mutable_output()->set_live_conversion(true);
-    command->mutable_output()->set_live_conversion_pending(false);
-    command->mutable_output()->set_zenz_live_correction_pending(false);
-    command->mutable_output()->set_zenz_live_correction_debug(debug);
-    return true;
+  if (!response.ok || response.timeout ||
+      response.generation != pending_zenz_conversion_.generation ||
+      (!response.key.empty() && response.key != pending_zenz_conversion_.key)) {
+    const std::string debug = response.debug.empty()
+                                  ? "zenz_conversion_failed"
+                                  : ZenzSafeDebugReason(response.debug);
+    CancelPendingZenzConversion();
+    return OutputConversionAfterZenzStop(command, debug);
   }
 
   std::string zenz_value = response.value;
-
-  // zenz sometimes returns the sanitized left context together with the current
-  // conversion result. The preedit should contain only the current composition
-  // result, so strip the already-known context prefix.
-  if (!pending_zenz_live_.left_context.empty() &&
-      StartsWithString(zenz_value, pending_zenz_live_.left_context)) {
-    zenz_value.erase(0, pending_zenz_live_.left_context.size());
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] stripped left_context prefix ",
-        ZenzRedactedTextStats("value", zenz_value),
-        " context_class=", pending_zenz_live_.context_class));
+  if (!pending_zenz_conversion_.left_context.empty() &&
+      StartsWithString(zenz_value, pending_zenz_conversion_.left_context)) {
+    zenz_value.erase(0, pending_zenz_conversion_.left_context.size());
   }
-
-  const std::string zenz_value_before_placeholder_restore = zenz_value;
   zenz_value = zenz_adoption_policy_.RestorePlaceholders(
-      zenz_value, pending_zenz_live_.protected_spans);
-  if (zenz_value != zenz_value_before_placeholder_restore) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] restored protected placeholders ",
-        ZenzRedactedTextStats("value", zenz_value),
-        " ", ZenzRedactedTextStats(
-                 "raw_value", zenz_value_before_placeholder_restore),
-        " context_class=", pending_zenz_live_.context_class));
-  }
-
-  const absl::string_view zenz_symbol_style_source =
-      pending_zenz_live_.symbol_style_source.empty()
-          ? pending_zenz_live_.key
-          : pending_zenz_live_.symbol_style_source;
-
-  const std::string zenz_value_before_symbol_restore = zenz_value;
+      zenz_value, pending_zenz_conversion_.protected_spans);
+  const absl::string_view symbol_source =
+      pending_zenz_conversion_.symbol_style_source.empty()
+          ? absl::string_view(pending_zenz_conversion_.key)
+          : absl::string_view(pending_zenz_conversion_.symbol_style_source);
   zenz_value = ZenzOutputValidator::RestoreUserVisibleSymbolStyle(
-      zenz_symbol_style_source, pending_zenz_live_.mozc_value, zenz_value);
-
-  const std::string zenz_display_key =
+      symbol_source, pending_zenz_conversion_.mozc_value, zenz_value);
+  const std::string display_key =
       ZenzOutputValidator::RestoreUserVisibleSymbolStyle(
-          zenz_symbol_style_source,
-          pending_zenz_live_.mozc_value,
-          pending_zenz_live_.key);
-
-  if (zenz_value != zenz_value_before_symbol_restore) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] restored symbol style ",
-        ZenzRedactedTextStats("value", zenz_value),
-        " ", ZenzRedactedTextStats("raw_value",
-                                   zenz_value_before_symbol_restore),
-        " context_class=", pending_zenz_live_.context_class));
-  }
+          symbol_source, pending_zenz_conversion_.mozc_value,
+          pending_zenz_conversion_.key);
 
   const std::string context_class =
-      pending_zenz_live_.context_class.empty()
-          ? BuildZenzFeedbackContextClass(pending_zenz_live_.left_context)
-          : pending_zenz_live_.context_class;
-
+      pending_zenz_conversion_.context_class.empty()
+          ? BuildZenzFeedbackContextClass(
+                pending_zenz_conversion_.left_context)
+          : pending_zenz_conversion_.context_class;
   ZenzValidationInput validation_input;
-  validation_input.key = pending_zenz_live_.key;
-  validation_input.mozc_value = pending_zenz_live_.mozc_value;
+  validation_input.key = pending_zenz_conversion_.key;
+  validation_input.mozc_value = pending_zenz_conversion_.mozc_value;
   validation_input.zenz_value = zenz_value;
-  validation_input.left_context = pending_zenz_live_.left_context;
-  validation_input.min_key_length = GetZenzLiveCorrectionMinKeyLength(config);
+  validation_input.left_context = pending_zenz_conversion_.left_context;
+  validation_input.min_key_length = kMinimumZenzConversionKeyLength;
   validation_input.allow_synthetic_candidate =
-      config.use_zenz_synthetic_candidate();
-
+      config.allow_zenz_synthetic_candidate();
   const ZenzValidationResult validation =
       zenz_output_validator_.Validate(validation_input);
-
   if (!validation.accept) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] validation rejected reason=", validation.reason,
-        " ", ZenzRedactedTextStats("value", zenz_value),
-        " ", ZenzRedactedTextStats("mozc_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", context_class));
-
-    CancelPendingZenzLiveCorrection();
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    command->mutable_output()->set_live_conversion(true);
-    command->mutable_output()->set_live_conversion_pending(false);
-    command->mutable_output()->set_zenz_live_correction_pending(false);
-    command->mutable_output()->set_zenz_live_correction_debug(
-        validation.reason);
-    return true;
+    CancelPendingZenzConversion();
+    return OutputConversionAfterZenzStop(command, validation.reason);
   }
 
   const ZenzTextPrivacyDecision key_privacy =
-      EvaluateZenzLiveKeyPrivacy(pending_zenz_live_.key);
-  if (!key_privacy.allow) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] validation rejected reason=key_privacy_",
-        key_privacy.reason,
-        " ",
-        ZenzRedactedTextStats("key", pending_zenz_live_.key),
-        " ",
-        ZenzRedactedTextStats("mozc_value",
-                              pending_zenz_live_.mozc_value),
-        " context_class=", context_class));
-
-    CancelPendingZenzLiveCorrection();
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    command->mutable_output()->set_live_conversion(true);
-    command->mutable_output()->set_live_conversion_pending(false);
-    command->mutable_output()->set_zenz_live_correction_pending(false);
-    command->mutable_output()->set_zenz_live_correction_debug(
-        absl::StrCat("key_privacy_", key_privacy.reason));
-    return true;
-  }
-
+      EvaluateZenzConversionKeyPrivacy(pending_zenz_conversion_.key);
   const ZenzTextPrivacyDecision value_privacy =
-      EvaluateZenzLiveValuePrivacy(zenz_value);
-  if (!value_privacy.allow) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] validation rejected reason=value_privacy_",
-        value_privacy.reason,
-        " ",
-        ZenzRedactedTextStats("value", zenz_value),
-        " ",
-        ZenzRedactedTextStats("mozc_value",
-                              pending_zenz_live_.mozc_value),
-        " context_class=", context_class));
-
-    CancelPendingZenzLiveCorrection();
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    command->mutable_output()->set_live_conversion(true);
-    command->mutable_output()->set_live_conversion_pending(false);
-    command->mutable_output()->set_zenz_live_correction_pending(false);
-    command->mutable_output()->set_zenz_live_correction_debug(
-        absl::StrCat("value_privacy_", value_privacy.reason));
-    return true;
+      EvaluateZenzConversionValuePrivacy(zenz_value);
+  if (!key_privacy.allow || !value_privacy.allow) {
+    CancelPendingZenzConversion();
+    return OutputConversionAfterZenzStop(
+        command, !key_privacy.allow
+                     ? absl::StrCat("key_privacy_", key_privacy.reason)
+                     : absl::StrCat("value_privacy_", value_privacy.reason));
   }
 
   ZenzAdoptionInput adoption_input;
-  adoption_input.key = pending_zenz_live_.key;
-  adoption_input.mozc_value = pending_zenz_live_.mozc_value;
+  adoption_input.key = pending_zenz_conversion_.key;
+  adoption_input.mozc_value = pending_zenz_conversion_.mozc_value;
   adoption_input.zenz_value = zenz_value;
-  adoption_input.protected_spans = pending_zenz_live_.protected_spans;
-
+  adoption_input.protected_spans = pending_zenz_conversion_.protected_spans;
   const ZenzAdoptionResult adoption =
       zenz_adoption_policy_.Decide(adoption_input);
   if (adoption.action == ZenzAdoptionResult::Action::kReject) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] adoption rejected reason=", adoption.reason,
-        " ", ZenzRedactedTextStats("value", zenz_value),
-        " ", ZenzRedactedTextStats("mozc_value",
-                                    pending_zenz_live_.mozc_value),
-        " context_class=", context_class));
-
-    CancelPendingZenzLiveCorrection();
-    Output(command);
-
-    if (command->output().has_preedit()) {
-      RestorePreeditSegmentKeysForSymbolStyle(
-          live_conversion_preedit_.empty()
-              ? live_conversion_key_
-              : live_conversion_preedit_,
-          command->mutable_output()->mutable_preedit());
-    }
-
-    command->mutable_output()->set_live_conversion(true);
-    command->mutable_output()->set_live_conversion_pending(false);
-    command->mutable_output()->set_zenz_live_correction_pending(false);
-    command->mutable_output()->set_zenz_live_correction_debug(adoption.reason);
-    return true;
+    CancelPendingZenzConversion();
+    return OutputConversionAfterZenzStop(command, adoption.reason);
   }
-
   zenz_value = adoption.value;
-
-  const ZenzTextPrivacyDecision adopted_value_privacy =
-      EvaluateZenzLiveValuePrivacy(zenz_value);
-  if (!adopted_value_privacy.allow) {
-    ZenzDebugOutput(absl::StrCat(
-        "[zenz] adoption rejected reason=adopted_value_privacy_",
-        adopted_value_privacy.reason,
-        " ", ZenzRedactedTextStats("value", zenz_value),
-        " context_class=", context_class));
-
-    CancelPendingZenzLiveCorrection();
-    Output(command);
-    command->mutable_output()->set_live_conversion(true);
-    command->mutable_output()->set_live_conversion_pending(false);
-    command->mutable_output()->set_zenz_live_correction_pending(false);
-    command->mutable_output()->set_zenz_live_correction_debug(
-        absl::StrCat("adopted_value_privacy_",
-                     adopted_value_privacy.reason));
-    return true;
+  if (!EvaluateZenzConversionValuePrivacy(zenz_value).allow) {
+    CancelPendingZenzConversion();
+    return OutputConversionAfterZenzStop(command, "adopted_value_privacy");
   }
-
-  std::string feedback_reason = "feedback_learning_disabled";
 
   if (UseZenzFeedbackLearning(config)) {
-    const ZenzFeedbackDecision feedback_decision =
-        zenz_feedback_store_.Decide(
-            pending_zenz_live_.key, context_class, zenz_value,
-            GetZenzFeedbackAutoBlockPolicy(config));
-
-    feedback_reason = feedback_decision.reason;
-
-    if (feedback_decision.action == ZenzFeedbackAction::kReject) {
-      ZenzDebugOutput(absl::StrCat(
-          "[zenz] feedback rejected reason=", feedback_decision.reason,
-          " ", ZenzRedactedTextStats("value", zenz_value),
-          " context_class=", context_class,
-          " accepted_count=", feedback_decision.accepted_count,
-          " rejected_count=", feedback_decision.rejected_count));
-
-      CancelPendingZenzLiveCorrection();
-      Output(command);
-      command->mutable_output()->set_live_conversion(true);
-      command->mutable_output()->set_live_conversion_pending(false);
-      command->mutable_output()->set_zenz_live_correction_pending(false);
-      command->mutable_output()->set_zenz_live_correction_debug(
-          feedback_decision.reason);
-      return true;
+    const ZenzFeedbackDecision decision = zenz_feedback_store_.Decide(
+        pending_zenz_conversion_.key, context_class, zenz_value,
+        GetZenzFeedbackAutoBlockPolicy(config));
+    if (decision.action == ZenzFeedbackAction::kReject) {
+      CancelPendingZenzConversion();
+      return OutputConversionAfterZenzStop(command, decision.reason);
     }
   }
 
-  ZenzDebugOutput(absl::StrCat(
-      "[zenz] validation accepted ",
-      ZenzRedactedTextStats("value", zenz_value),
-      " ", ZenzRedactedTextStats("old_mozc_value",
-                                  pending_zenz_live_.mozc_value),
-      " context_class=", context_class,
-      " adoption=", adoption.reason,
-      " feedback=", feedback_reason));
-
-  zenz_live_visible_generation_ = pending_zenz_live_.generation;
-  zenz_live_key_ = pending_zenz_live_.key;
-  zenz_live_display_key_ = zenz_display_key;
-  zenz_live_value_ = zenz_value;
-  zenz_live_mozc_value_ = pending_zenz_live_.mozc_value;
-  zenz_live_context_class_ = context_class.empty() ? "empty" : context_class;
-  zenz_live_left_context_ = pending_zenz_live_.left_context;
-  pending_zenz_live_.pending = false;
-
-  return OutputZenzLiveCorrection(zenz_value, command);
+  zenz_conversion_visible_generation_ = pending_zenz_conversion_.generation;
+  zenz_conversion_key_ = pending_zenz_conversion_.key;
+  zenz_conversion_display_key_ = display_key;
+  zenz_conversion_value_ = zenz_value;
+  zenz_conversion_mozc_value_ = pending_zenz_conversion_.mozc_value;
+  zenz_conversion_context_class_ = context_class;
+  zenz_conversion_left_context_ = pending_zenz_conversion_.left_context;
+  zenz_conversion_mozc_preedit_output_ =
+      pending_zenz_conversion_.mozc_preedit_output;
+  pending_zenz_conversion_.pending = false;
+  return OutputZenzConversion(zenz_value, command);
 }
 
-bool Session::OutputZenzLiveCorrection(
+bool Session::OutputZenzConversion(
     absl::string_view value,
     commands::Command* command) {
   command->mutable_output()->set_consumed(true);
-
+  if (!command->output().has_preedit()) {
+    // Rebuild the original Mozc conversion output so its candidate window stays
+    // available underneath the temporary Zenz preedit.
+    Output(command);
+  }
   commands::Output* output = command->mutable_output();
-  output->clear_candidate_window();
-  output->set_live_conversion(true);
-  output->set_live_conversion_pending(false);
-  output->set_zenz_live_correction_pending(false);
-  output->set_zenz_live_correction_applied(true);
-
+  output->set_zenz_conversion_pending(false);
+  output->set_zenz_conversion_applied(true);
   commands::Preedit* preedit = output->mutable_preedit();
   preedit->Clear();
-
   const absl::string_view display_key =
-      zenz_live_display_key_.empty() ? zenz_live_key_ : zenz_live_display_key_;
-
-  AddPreeditSegment(
-      display_key,
-      value,
-      commands::Preedit::Segment::HIGHLIGHT,
-      preedit);
-
+      zenz_conversion_display_key_.empty() ? zenz_conversion_key_
+                                           : zenz_conversion_display_key_;
+  AddPreeditSegment(display_key, value,
+                    commands::Preedit::Segment::HIGHLIGHT, preedit);
   preedit->set_cursor(Util::CharsLen(value));
-
-  ZenzDebugOutput(absl::StrCat(
-      "[zenz-feedback] output zenz correction ",
-      ZenzRedactedTextStats("key", zenz_live_key_),
-      " ", ZenzRedactedTextStats("value", value),
-      " context_class=", zenz_live_context_class_));
-
-  // Do not record acceptance here. Displaying a zenz correction is not the same
-  // as user acceptance. Acceptance must be recorded only when the user commits
-  // the visible zenz result.
-  zenz_live_preedit_output_ = *preedit;
-
-  AttachCachedLiveConversionSuggestionCandidateWindow(output);
   return true;
 }
 
-bool Session::RevertZenzLiveCorrectionToNormalConversion(
+bool Session::RevertZenzConversionToMozc(
     commands::Command* command) {
-  if (!HasVisibleZenzLiveCorrection()) {
+  if (!HasVisibleZenzConversion()) {
     return false;
   }
-
-  ZenzDebugOutput(absl::StrCat(
-      "[zenz-feedback] revert zenz correction to mozc normal conversion ",
-      ZenzRedactedTextStats("key", zenz_live_key_),
-      " ", ZenzRedactedTextStats("zenz_value", zenz_live_value_),
-      " ", ZenzRedactedTextStats("mozc_value", zenz_live_mozc_value_),
-      " visible_generation=", zenz_live_visible_generation_));
-
   SetPendingZenzFeedbackRejected("space_revert_zenz_to_mozc");
-
-  const commands::Preedit live_preedit = live_conversion_preedit_output_;
-  const std::string live_value = live_conversion_value_;
-
-  // This Space is already a conversion operation.  After peeling off the zenz
-  // layer, keep the converter's current segments but leave live conversion
-  // mode.  This makes the next character input follow normal conversion
-  // semantics: commit the restored Mozc result first, then start a new
-  // composition.
-  ClearLiveConversionState();
-  context_->mutable_converter()->SetCandidateListVisible(false);
-
+  ClearZenzConversionState();
+  context_->mutable_converter()->SetCandidateListVisible(true);
   command->mutable_output()->set_consumed(true);
-  OutputMode(command);
-
-  commands::Output* output = command->mutable_output();
-  output->clear_candidate_window();
-
-  if (live_preedit.segment_size() > 0) {
-    *output->mutable_preedit() = live_preedit;
-    output->mutable_preedit()->set_cursor(Util::CharsLen(live_value));
-  } else {
-    Output(command);
-    output = command->mutable_output();
-    output->clear_candidate_window();
-  }
-
-  output->set_live_conversion(false);
-  output->set_live_conversion_pending(false);
-  output->set_zenz_live_correction_pending(false);
-  output->set_zenz_live_correction_applied(false);
-
+  Output(command);
+  command->mutable_output()->set_zenz_conversion_pending(false);
+  command->mutable_output()->set_zenz_conversion_applied(false);
   return true;
 }
 
-bool Session::CommitZenzLiveCorrectionResult(commands::Command* command) {
-  if (!HasVisibleZenzLiveCorrection()) {
+bool Session::CommitZenzConversionResult(commands::Command* command) {
+  if (!HasVisibleZenzConversion()) {
     return false;
   }
-
-  if (!(context_->state() &
-        (ImeContext::COMPOSITION | ImeContext::CONVERSION))) {
-    return false;
-  }
-
-  const std::string key = zenz_live_key_;
-  const std::string value = zenz_live_value_;
-  const std::string context_class =
-      zenz_live_context_class_.empty() ? "empty" : zenz_live_context_class_;
-
-  ZenzDebugOutput(absl::StrCat(
-      "[zenz-feedback] CommitZenzLiveCorrectionResult ",
-      ZenzRedactedTextStats("key", key),
-      " ", ZenzRedactedTextStats("value", value),
-      " context_class=", context_class,
-      " visible_generation=", zenz_live_visible_generation_));
-
+  const std::string key = zenz_conversion_key_;
+  const std::string value = zenz_conversion_value_;
+  const std::string context_class = zenz_conversion_context_class_;
   SetPendingZenzFeedbackAccepted(key, context_class, value);
-
-  ClearLiveConversionState();
+  ClearZenzConversionState();
   CommitStringDirectly(key, value, command);
   return true;
 }
 
-bool Session::CommitLiveConversionResult(commands::Command* command) {
-  if (context_->state() != ImeContext::COMPOSITION) {
-    return false;
-  }
-
-  if (live_conversion_value_.empty()) {
-    CommitCompositionDirectly(command);
-    return true;
-  }
-
-  const size_t length = context_->composer().GetLength();
-  if (length == 0) {
-    CommitCompositionDirectly(command);
-    return true;
-  }
-
-  const std::string preedit = context_->composer().GetStringForPreedit();
-  const std::string last_char(
-      Util::Utf8SubString(preedit, length - 1, 1));
-
-  std::string key = context_->composer().GetQueryForConversion();
-  std::string value = live_conversion_value_;
-  value.append(last_char);
-
-  ClearLiveConversionState();
-
-  CommitStringDirectly(key, value, command);
-  return true;
-}
-
-std::pair<std::string, std::string>
-Session::GetPendingLiveConversionDisplayCommitStrings() const {
-  const std::string key =
-      context_->composer().GetQueryForConversion();
-  const std::string raw_preedit =
-      context_->composer().GetStringForPreedit();
-
-  const bool has_stable_live_conversion =
-      !live_conversion_key_.empty() &&
-      !live_conversion_preedit_.empty() &&
-      !live_conversion_value_.empty() &&
-      live_conversion_preedit_output_.segment_size() > 0;
-
-  if (has_stable_live_conversion &&
-      StartsWithString(key, live_conversion_key_) &&
-      StartsWithString(raw_preedit, live_conversion_preedit_)) {
-    std::string value = live_conversion_value_;
-    value.append(raw_preedit.substr(live_conversion_preedit_.size()));
-    return {key, std::move(value)};
-  }
-
-  return {key, context_->composer().GetStringForSubmission()};
-}
-
-bool Session::CommitPendingLiveConversionDisplayDirectly(
-    commands::Command* command) {
-  auto [key, value] =
-      GetPendingLiveConversionDisplayCommitStrings();
-
-  ClearLiveConversionState();
-  CommitStringDirectly(key, value, command);
-  return true;
-}
-
-bool Session::CommitPendingLiveConversionDisplayForSubmit(
-    commands::Command* command) {
-  if (!live_conversion_pending_ ||
-      context_->state() != ImeContext::COMPOSITION) {
-    return false;
-  }
-
-  auto [key, value] =
-      GetPendingLiveConversionDisplayCommitStrings();
-  if (key.empty() || value.empty()) {
-    CancelPendingLiveConversion();
-    return false;
-  }
-
-  // Enter accepts only the preedit already visible to the user. The pending
-  // converter result is speculative and must not be materialized, committed,
-  // or learned. Unlike direct-commit punctuation, Enter preserves Mozc Undo.
-  PushDirectCommitUndoContext();
-  ClearPendingRerankedPreeditCommitAfterConvertCancel();
-  ClearLiveConversionState();
-  CommitStringDirectly(key, value, command);
-
-  // Undo() reads the committed result from context_->output() to build the
-  // deletion range before restoring the pending preedit snapshot.
-  *context_->mutable_output() = command->output();
-  return true;
-}
 
 void Session::set_client_capability(commands::Capability capability) {
   *context_->mutable_client_capability() = std::move(capability);
@@ -6773,149 +4057,39 @@ bool Session::InsertCharacter(commands::Command* command) {
     LOG(ERROR) << "No key event: " << command->input();
     return false;
   }
-
   const commands::KeyEvent& key = command->input().key();
-
-  // A pending direct-commit learning entry is finalized only when the next real
-  // text input starts. If the next key is Backspace/Escape, it is discarded.
   HandlePendingDirectCommitLearningForKeyEvent(key);
-
-  // A pending zenz feedback entry is finalized only when the next real text
-  // input starts. This prevents learning immediately on Enter/Space, while still
-  // learning once the user continues typing after the committed result.
   HandlePendingZenzFeedbackForKeyEvent(key);
 
   if (key.input_style() == commands::KeyEvent::DIRECT_INPUT &&
       context_->state() == ImeContext::PRECOMPOSITION) {
-    // If the key event represents a half width ascii character (ie.
-    // key_code is equal to key_string), that key event is not
-    // consumed and done echo back.
-    // We must not call |EchoBackAndClearUndoContext| for a half-width space
-    // here because it should be done in Session::TestSendKey or
-    // Session::InsertSpaceHalfWidth. Note that the |key| comes from
-    // Session::InsertSpaceHalfWidth and Session::InsertSpaceFullWidth is
-    // different from the original key event.
-    // For example, when the client sends a key command like
-    //   {key.special_key(): HENKAN, key.modifier_keys(): [SHIFT]},
-    // Session::InsertSpaceHalfWidth replaces it with
-    //   {key.key_string(): " ", key.key_code(): ' '}
-    // when you assign [Shift+HENKAN] to [InsertSpaceHalfWidth].
-    // So |key.key_code() == ' '| does not always mean that the original key is
-    // a space key w/o any modifier.
-    // This is why we cannot call |EchoBackAndClearUndoContext| when
-    // |key.key_code() == ' '|. This issue was found in b/5872031.
     if (key.key_string().size() == 1 && key.key_code() == key.key_string()[0] &&
         key.key_code() != ' ') {
       return EchoBackAndClearUndoContext(command);
     }
-
     ClearPendingRerankedPreeditCommitAfterConvertCancel();
     context_->mutable_composer()->InsertCharacterKeyEvent(key);
     CommitCompositionDirectly(command);
-    ClearUndoContext();  // UndoContext must be invalidated.
+    ClearUndoContext();
     return true;
   }
 
   command->mutable_output()->set_consumed(true);
-
-  // If a direct-commit punctuation/symbol is typed while delayed live conversion
-  // is pending, commit the currently visible pending preedit. Do not materialize
-  // the pending conversion here, because that would commit a conversion result
-  // that has not been shown to the user yet.
-  if (live_conversion_pending_ &&
-      CanDirectCommitPendingLiveConversionBeforeInsert(key)) {
-    const composer::Composer composer_before_insert = context_->composer();
-    context_->mutable_composer()->InsertCharacterKeyEvent(key);
-    ClearUndoContext();
-
-    if (CanDirectCommitAfterPunctuation(key)) {
-      const auto [direct_commit_key, direct_commit_value] =
-          GetDirectCommitStringsWithDirectCommitSuffixFallback(
-              composer_before_insert, key);
-      const bool learned_reranked_preedit_after_cancel =
-          CommitPendingRerankedPreeditAfterConvertCancelForDirectCommit(
-              composer_before_insert, command->input().context(),
-              "convert_cancel_direct_commit_punctuation");
-      if (learned_reranked_preedit_after_cancel) {
-        ClearLiveConversionState();
-        CommitStringDirectly(direct_commit_key, direct_commit_value, command);
-        return true;
-      }
-      return CommitPendingLiveConversionDisplayDirectly(command);
-    }
-
-    ClearPendingRerankedPreeditCommitAfterConvertCancel();
-
-    // The physical key looked like a direct-commit trigger before insertion,
-    // but the romaji table may have turned it into a different character.
-    // Example: "v." -> "…" or "v," -> "‥".
-    //
-    // In that case, do not fall back to raw composition, because it discards
-    // the stable converted prefix shown by live conversion, e.g. "今日は".
-    // Treat it as ordinary continued composition and schedule live conversion
-    // for the updated preedit.
-    CancelPendingLiveConversion();
-    if (MaybeScheduleLiveConversion(command)) {
-      return true;
-    }
-
-    OutputComposition(command);
-    return true;
-  }
-
-  const bool was_live_conversion = live_conversion_active_;
-  const bool was_pending_live_conversion = live_conversion_pending_;
-
-  // Preserve the visible zenz correction before editing cancels the temporary
-  // live conversion state.
-  //
-  // Continuing to type after a visible zenz correction is not necessarily an
-  // explicit acceptance.  Therefore do not record positive feedback here.
-  // Positive feedback is recorded only on explicit commit paths such as Enter
-  // and direct-commit punctuation.
-  const bool had_visible_zenz_correction =
-      HasVisibleZenzLiveCorrection();
-
-  const std::string zenz_key_before_edit = zenz_live_key_;
-  const std::string zenz_value_before_edit = zenz_live_value_;
+  const bool had_visible_zenz_correction = HasVisibleZenzConversion();
+  const std::string zenz_key_before_edit = zenz_conversion_key_;
+  const std::string zenz_value_before_edit = zenz_conversion_value_;
   const std::string zenz_context_class_before_edit =
-      zenz_live_context_class_.empty() ? "empty" : zenz_live_context_class_;
+      zenz_conversion_context_class_.empty() ? "empty"
+                                             : zenz_conversion_context_class_;
+  const commands::Preedit zenz_mozc_preedit_before_edit =
+      zenz_conversion_mozc_preedit_output_;
 
-  if ((live_conversion_active_ || live_conversion_pending_) &&
-      ShouldCommitLiveConversionBeforeShiftAsciiInput(
-          context_->GetConfig(), context_->composer(), key)) {
-    ClearPendingRerankedPreeditCommitAfterConvertCancel();
-    if (had_visible_zenz_correction) {
-      CommitZenzLiveCorrectionResult(command);
-    } else if (live_conversion_active_) {
-      const std::string live_key =
-          live_conversion_key_.empty()
-              ? context_->composer().GetQueryForConversion()
-              : live_conversion_key_;
-      const std::string live_value =
-          live_conversion_value_.empty()
-              ? context_->composer().GetStringForSubmission()
-              : live_conversion_value_;
-
-      ClearLiveConversionState();
-      CommitStringDirectly(live_key, live_value, command);
-    } else if (live_conversion_pending_) {
-      CommitPendingLiveConversionDisplayDirectly(command);
-    }
-
-    context_->mutable_composer()->InsertCharacterKeyEvent(key);
-    ClearUndoContext();
-    SetSessionState(ImeContext::COMPOSITION, context_.get());
-    OutputComposition(command);
-    return true;
+  // Typing while an inference is pending cancels it. Typing over a visible
+  // Zenz overlay resumes ordinary Mozc conversion/editing semantics.
+  if (pending_zenz_conversion_.pending || had_visible_zenz_correction) {
+    ClearZenzConversionState();
   }
 
-  // If the current conversion was started by live conversion, ordinary
-  // character input should continue editing the composition.  So cancel
-  // the temporary conversion before handling candidate shortcuts.
-  CancelLiveConversionForEditing();
-
-  // Handle shortcut keys selecting a candidate from a list.
   if (MaybeSelectCandidate(command)) {
     ClearPendingRerankedPreeditCommitAfterConvertCancel();
     Output(command);
@@ -6923,31 +4097,19 @@ bool Session::InsertCharacter(commands::Command* command) {
   }
 
   const std::string composition = context_->composer().GetQueryForConversion();
-  bool should_commit = (context_->state() == ImeContext::CONVERSION);
-
+  bool should_commit = context_->state() == ImeContext::CONVERSION;
   if (context_->GetRequest().space_on_alphanumeric() ==
           commands::Request::SPACE_OR_CONVERT_COMMITTING_COMPOSITION &&
-      context_->state() == ImeContext::COMPOSITION &&
-      // TODO(komatsu): Support FullWidthSpace
-      composition.ends_with(' ')) {
+      context_->state() == ImeContext::COMPOSITION && composition.ends_with(' ')) {
     should_commit = true;
   }
 
   bool committed_conversion_before_insert = false;
-
   if (should_commit) {
     CommitNotTriggeringZeroQuerySuggest(command);
     committed_conversion_before_insert = true;
-
-    // HandlePendingZenzFeedbackForKeyEvent() intentionally does not confirm
-    // feedback while the session is still in CONVERSION, because conversion
-    // keys may still be part of selecting the result.  An ordinary text input
-    // that reaches this point has already committed the current conversion, so
-    // it is now the next real text input after the zenz decision.
     ConfirmPendingZenzFeedback();
-
     if (key.input_style() == commands::KeyEvent::DIRECT_INPUT) {
-      // Do ClearUndoContext() because it is a direct input.
       ClearPendingRerankedPreeditCommitAfterConvertCancel();
       ClearUndoContext();
       context_->mutable_composer()->InsertCharacterKeyEvent(key);
@@ -6960,15 +4122,8 @@ bool Session::InsertCharacter(commands::Command* command) {
   context_->mutable_composer()->InsertCharacterKeyEvent(key);
   ClearUndoContext();
 
-  if (!was_live_conversion && !live_conversion_pending_ &&
-      context_->composer().GetLength() == 1) {
-    // A new composition must not reuse the stable prefix from a previous
-    // live conversion.
-    live_conversion_key_.clear();
-    live_conversion_preedit_.clear();
-    live_conversion_value_.clear();
-    live_conversion_preedit_output_.Clear();
-    ClearZenzLiveCorrectionState();
+  if (context_->composer().GetLength() == 1) {
+    ClearZenzConversionState();
   }
 
   if (CanDirectCommitAfterPunctuation(key)) {
@@ -6980,75 +4135,40 @@ bool Session::InsertCharacter(commands::Command* command) {
             composer_before_insert, command->input().context(),
             "convert_cancel_direct_commit_punctuation");
 
-    if (!learned_reranked_preedit_after_cancel && had_visible_zenz_correction) {
+    if (!learned_reranked_preedit_after_cancel &&
+        had_visible_zenz_correction) {
       const size_t length = context_->composer().GetLength();
       const std::string preedit = context_->composer().GetStringForPreedit();
-      const std::string last_char(
-          Util::Utf8SubString(preedit, length - 1, 1));
-
+      const std::string last_char(Util::Utf8SubString(preedit, length - 1, 1));
       std::string commit_key = context_->composer().GetQueryForConversion();
       std::string commit_value = zenz_value_before_edit;
       commit_value.append(last_char);
-
-      ZenzDebugOutput(absl::StrCat(
-          "[zenz-feedback] direct commit zenz with punctuation ",
-          ZenzRedactedTextStats("key", zenz_key_before_edit),
-          " ", ZenzRedactedTextStats("value", zenz_value_before_edit),
-          " suffix_chars=", Util::CharsLen(last_char)));
-
-      // Direct-commit punctuation is an explicit commit path, but keep the
-      // feedback pending until the next real text input.  If the next action is
-      // Backspace/Escape, the feedback is discarded.
-      SetPendingZenzFeedbackAccepted(
-          zenz_key_before_edit,
-          zenz_context_class_before_edit,
-          zenz_value_before_edit);
-
-      ClearLiveConversionState();
+      zenz_conversion_mozc_preedit_output_ = zenz_mozc_preedit_before_edit;
+      SetPendingZenzFeedbackAccepted(zenz_key_before_edit,
+                                     zenz_context_class_before_edit,
+                                     zenz_value_before_edit);
       CommitStringDirectly(commit_key, commit_value, command);
       return true;
     }
 
-    if (!learned_reranked_preedit_after_cancel &&
-        (live_conversion_pending_ || was_pending_live_conversion)) {
-      return CommitPendingLiveConversionDisplayDirectly(command);
-    }
-
-    if (!learned_reranked_preedit_after_cancel && was_live_conversion &&
-        CommitLiveConversionResult(command)) {
-      return true;
-    }
-
     if (learned_reranked_preedit_after_cancel) {
-      ClearLiveConversionState();
       CommitStringDirectly(direct_commit_key, direct_commit_value, command);
       return true;
     }
-
     if (committed_conversion_before_insert) {
       SetPendingDirectCommitLearningFromCommittedResult(
-          *command,
-          "normal_conversion_direct_commit_punctuation");
+          *command, "normal_conversion_direct_commit_punctuation");
     }
-
-    // Most direct-commit punctuation paths can commit the current Composer
-    // contents as-is.  However,
-    // GetDirectCommitStringsWithDirectCommitSuffixFallback() may explicitly
-    // append a suffix derived from the key event when Composer has not yet
-    // reflected the trigger.  Use the rewritten strings only when they differ
-    // from the current Composer contents, keeping the ordinary path unchanged.
     if (direct_commit_key != context_->composer().GetQueryForConversion() ||
         direct_commit_value != context_->composer().GetStringForSubmission()) {
       CommitStringDirectly(direct_commit_key, direct_commit_value, command);
       return true;
     }
-
     CommitCompositionDirectly(command);
     return true;
   }
 
   ClearPendingRerankedPreeditCommitAfterConvertCancel();
-
   if (context_->mutable_composer()->ShouldCommit()) {
     CommitCompositionDirectly(command);
     return true;
@@ -7060,19 +4180,13 @@ bool Session::InsertCharacter(commands::Command* command) {
 
   SetSessionState(ImeContext::COMPOSITION, context_.get());
   if (CanStartAutoConversion(key)) {
-    CancelPendingLiveConversion();
-    return Convert(command);
+    CancelPendingZenzConversion();
+    return ConvertInternal(command, /*run_zenz=*/false);
   }
-
-  if (MaybeScheduleLiveConversion(command)) {
-    return true;
-  }
-
   if (Suggest(command->input())) {
     Output(command);
     return true;
   }
-
   OutputComposition(command);
   return true;
 }
@@ -7256,7 +4370,7 @@ bool Session::EditCancel(commands::Command* command) {
   TryCancelConvertReverse(command);
 
   SetStateToPredompositionAndCancel(context_.get());
-  ClearLiveConversionState();
+  ClearZenzConversionState();
   Output(command);
   return true;
 }
@@ -7288,7 +4402,7 @@ bool Session::EditCancelAndIMEOff(commands::Command* command) {
   context_->mutable_converter()->Reset();
 
   SetSessionState(ImeContext::DIRECT, context_.get());
-  ClearLiveConversionState();
+  ClearZenzConversionState();
   Output(command);
   return true;
 }
@@ -7330,23 +4444,12 @@ bool Session::CommitInternal(commands::Command* command,
   // Copy the previous output for Undo.
   *context_->mutable_output() = command->output();
 
-  ClearLiveConversionState();
+  ClearZenzConversionState();
   return true;
 }
 
 bool Session::Commit(commands::Command* command) {
-  ZenzDebugOutput(absl::StrCat(
-      "[zenz-feedback] Commit entered live_conversion_active=",
-      ZenzBool(live_conversion_active_),
-      " ", ZenzRedactedTextStats("zenz_key", zenz_live_key_),
-      " ", ZenzRedactedTextStats("zenz_value", zenz_live_value_),
-      " state=", static_cast<int>(context_->state())));
-
-  if (CommitZenzLiveCorrectionResult(command)) {
-    return true;
-  }
-
-  if (CommitPendingLiveConversionDisplayForSubmit(command)) {
+  if (CommitZenzConversionResult(command)) {
     return true;
   }
 
@@ -7584,8 +4687,6 @@ bool Session::Suggest(const commands::Input& input) {
 
   if (ShouldSuppressShiftedAsciiAutoSuggestion(context_->GetConfig(),
                                                context_->composer())) {
-    live_conversion_suggestion_candidate_window_.Clear();
-    pending_live_conversion_suggestion_candidate_window_.Clear();
     return false;
   }
 
@@ -7613,115 +4714,7 @@ bool Session::Suggest(const commands::Input& input) {
                                                 input.context());
 }
 
-bool Session::AttachLiveConversionSuggestionCandidateWindow(
-    const commands::Input& input, commands::Output* output) {
-  DCHECK(output);
 
-  // Output() from live conversion may contain the real CONVERSION candidate
-  // window.  Only the passive SUGGESTION window built below is allowed to
-  // remain on live-conversion output; otherwise the renderer would show the
-  // ordinary conversion candidate list without an explicit Space/Down action.
-  live_conversion_suggestion_candidate_window_.Clear();
-  output->clear_candidate_window();
-
-  if (SuppressSuggestion(input)) {
-    return false;
-  }
-
-  if (ShouldSuppressShiftedAsciiAutoSuggestion(context_->GetConfig(),
-                                               context_->composer())) {
-    live_conversion_suggestion_candidate_window_.Clear();
-    pending_live_conversion_suggestion_candidate_window_.Clear();
-    return false;
-  }
-
-  // Live conversion intentionally keeps the real converter in CONVERSION state
-  // so that Space/Down can enter the normal conversion candidate list with a
-  // single key press.  EngineConverter::Suggest(), however, is defined only for
-  // COMPOSITION/SUGGESTION states and resets converter state while generating
-  // candidates.  Build the passive suggestion window on a cloned context and
-  // copy only candidate_window to the live-conversion output.  The real
-  // converter state, live_conversion_active_, selected segment, and Zenz state
-  // are left untouched.
-  ImeContext suggestion_context(*context_);
-  if (suggestion_context.converter().IsActive()) {
-    suggestion_context.mutable_converter()->Cancel();
-  }
-  suggestion_context.set_state(ImeContext::COMPOSITION);
-
-  bool has_suggestion = false;
-  if (input.has_request_suggestion() &&
-      input.type() == commands::Input::SEND_KEY) {
-    ConversionPreferences conversion_preferences =
-        suggestion_context.converter().conversion_preferences();
-    conversion_preferences.request_suggestion = input.request_suggestion();
-    has_suggestion =
-        suggestion_context.mutable_converter()->SuggestWithPreferences(
-            suggestion_context.composer(), input.context(),
-            conversion_preferences);
-  } else {
-    has_suggestion = suggestion_context.mutable_converter()->Suggest(
-        suggestion_context.composer(), input.context());
-  }
-
-  if (!has_suggestion) {
-    return false;
-  }
-
-  commands::Output suggestion_output;
-  suggestion_context.mutable_converter()->PopOutput(
-      suggestion_context.composer(), &suggestion_output);
-
-  if (!suggestion_output.has_candidate_window() ||
-      suggestion_output.candidate_window().candidate_size() == 0) {
-    return false;
-  }
-
-  live_conversion_suggestion_candidate_window_ =
-      suggestion_output.candidate_window();
-  *output->mutable_candidate_window() =
-      live_conversion_suggestion_candidate_window_;
-  return true;
-}
-
-bool Session::AttachCachedLiveConversionSuggestionCandidateWindow(
-    commands::Output* output) {
-  DCHECK(output);
-
-  output->clear_candidate_window();
-
-  if (ShouldSuppressShiftedAsciiAutoSuggestion(context_->GetConfig(),
-                                               context_->composer())) {
-    live_conversion_suggestion_candidate_window_.Clear();
-    pending_live_conversion_suggestion_candidate_window_.Clear();
-    return false;
-  }
-
-  const commands::CandidateWindow* candidate_window = nullptr;
-  if (live_conversion_suggestion_candidate_window_.has_category() &&
-      live_conversion_suggestion_candidate_window_.category() ==
-          commands::SUGGESTION &&
-      live_conversion_suggestion_candidate_window_.candidate_size() > 0 &&
-      !live_conversion_suggestion_candidate_window_.has_focused_index()) {
-    candidate_window = &live_conversion_suggestion_candidate_window_;
-  } else if (
-      pending_live_conversion_suggestion_candidate_window_.has_category() &&
-      pending_live_conversion_suggestion_candidate_window_.category() ==
-          commands::SUGGESTION &&
-      pending_live_conversion_suggestion_candidate_window_.candidate_size() >
-          0 &&
-      !pending_live_conversion_suggestion_candidate_window_
-           .has_focused_index()) {
-    candidate_window = &pending_live_conversion_suggestion_candidate_window_;
-  }
-
-  if (candidate_window == nullptr) {
-    return false;
-  }
-
-  *output->mutable_candidate_window() = *candidate_window;
-  return true;
-}
 
 bool Session::ConvertToTransliteration(
     commands::Command* command,
@@ -8054,45 +5047,35 @@ bool Session::DeleteCandidateFromHistory(commands::Command* command) {
 }
 
 bool Session::Convert(commands::Command* command) {
-  CancelPendingLiveConversion();
+  return ConvertInternal(command, /*run_zenz=*/true);
+}
+
+bool Session::ConvertInternal(commands::Command* command, bool run_zenz) {
+  CancelPendingZenzConversion();
   command->mutable_output()->set_consumed(true);
   const std::string composition = context_->composer().GetQueryForConversion();
   const bool should_show_candidate_window_on_initial_conversion =
       context_->state() == ImeContext::COMPOSITION &&
-      context_->GetConfig().show_candidate_window_on_initial_conversion() &&
-      !context_->GetConfig().use_live_conversion();
+      context_->GetConfig().show_candidate_window_on_initial_conversion();
 
-  // TODO(komatsu): Make a function like ConvertOrSpace.
-  // Handle a space key on the ASCII composition mode.
   if (context_->state() == ImeContext::COMPOSITION &&
       (context_->composer().GetInputMode() == transliteration::HALF_ASCII ||
        context_->composer().GetInputMode() == transliteration::FULL_ASCII) &&
+      command->input().has_key() &&
       command->input().key().has_special_key() &&
       command->input().key().special_key() == commands::KeyEvent::SPACE) {
-    // TODO(komatsu): Consider FullWidth Space too.
     if (!composition.ends_with(' ') ||
         context_->composer().GetLength() != context_->composer().GetCursor()) {
       if (context_->GetRequest().space_on_alphanumeric() ==
           commands::Request::COMMIT) {
-        // Space is committed with the composition
         context_->mutable_composer()->InsertCharacterPreedit(" ");
-        // Don't push the context to the undo context here.
-        // It'll be done in Commit() below.
         return Commit(command);
-      } else {
-        // SPACE_OR_CONVERT_KEEPING_COMPOSITION or
-        // SPACE_OR_CONVERT_COMMITTING_COMPOSITION.
-
-        // If the last character is not space, space is inserted to the
-        // composition.
-        command->mutable_input()->mutable_key()->set_key_code(' ');
-        return InsertCharacter(command);
       }
+      command->mutable_input()->mutable_key()->set_key_code(' ');
+      return InsertCharacter(command);
     }
-
     if (!composition.empty()) {
       DCHECK_EQ(' ', composition[composition.size() - 1]);
-      // Delete the last space.
       context_->mutable_composer()->Backspace();
       ClearUndoContext();
     }
@@ -8103,17 +5086,22 @@ bool Session::Convert(commands::Command* command) {
     OutputComposition(command);
     return true;
   }
-
   SetSessionState(ImeContext::CONVERSION, context_.get());
   if (should_show_candidate_window_on_initial_conversion) {
     context_->mutable_converter()->SetCandidateListVisible(true);
   }
   Output(command);
+  if (run_zenz && MaybeApplyZenzFeedbackConversion(command)) {
+    return true;
+  }
+  if (run_zenz && MaybeScheduleZenzConversion(command)) {
+    return true;
+  }
   return true;
 }
 
 bool Session::ConvertWithoutHistory(commands::Command* command) {
-  CancelPendingLiveConversion();
+  CancelPendingZenzConversion();
   command->mutable_output()->set_consumed(true);
 
   ConversionPreferences preferences =
@@ -8281,14 +5269,13 @@ bool Session::Delete(commands::Command* command) {
   ClearPendingRerankedPreeditCommitAfterConvertCancel();
 
   command->mutable_output()->set_consumed(true);
-  CancelLiveConversionForEditing();
+  CancelPendingZenzConversion();
+  ClearZenzConversionState();
   context_->mutable_composer()->Delete();
   ClearUndoContext();
   if (context_->mutable_composer()->Empty()) {
     SetStateToPredompositionAndCancel(context_.get());
     Output(command);
-  } else if (MaybeStartLiveConversion(command)) {
-    return true;
   } else if (Suggest(command->input())) {
     Output(command);
   } else {
@@ -8304,14 +5291,13 @@ bool Session::Backspace(commands::Command* command) {
   ClearPendingRerankedPreeditCommitAfterConvertCancel();
 
   command->mutable_output()->set_consumed(true);
-  CancelLiveConversionForEditing();
+  CancelPendingZenzConversion();
+  ClearZenzConversionState();
   context_->mutable_composer()->Backspace();
   ClearUndoContext();
   if (context_->mutable_composer()->Empty()) {
     SetStateToPredompositionAndCancel(context_.get());
     Output(command);
-  } else if (MaybeStartLiveConversion(command)) {
-    return true;
   } else if (Suggest(command->input())) {
     Output(command);
   } else {
@@ -8426,7 +5412,7 @@ bool Session::ConvertCancel(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
 
   MaybeSetPendingRerankedPreeditCommitAfterConvertCancel();
-  ClearLiveConversionState();
+  ClearZenzConversionState();
 
   SetSessionState(ImeContext::COMPOSITION, context_.get());
   context_->mutable_converter()->Cancel();
@@ -8438,46 +5424,9 @@ bool Session::ConvertCancel(commands::Command* command) {
   return true;
 }
 
-bool Session::PredictAndConvertFromLiveConversion(commands::Command* command) {
-  DCHECK(command);
-
-  CancelPendingLiveConversion();
-  command->mutable_output()->set_consumed(true);
-
-  if (context_->state() != ImeContext::CONVERSION || !live_conversion_active_) {
-    return PredictAndConvert(command);
-  }
-
-  // Selecting prediction candidates is an explicit user override of the
-  // currently visible live conversion result.  If a zenz correction is visible,
-  // remember it as rejected before removing the speculative layer.
-  if (HasVisibleZenzLiveCorrection()) {
-    SetPendingZenzFeedbackRejected("predict_after_zenz");
-  }
-  ClearZenzLiveCorrectionState();
-
-  // Passive suggestions shown during live conversion are generated from a cloned
-  // context and are not the real converter's current suggestion state.  Reset the
-  // real converter before entering prediction selection so stale previous
-  // suggestions from an older prefix, e.g. "ふ" before "ふる", are not reused.
-  ClearLiveConversionState();
-  SetSessionState(ImeContext::COMPOSITION, context_.get());
-  context_->mutable_converter()->Cancel();
-
-  if (context_->mutable_converter()->Predict(context_->composer())) {
-    SetSessionState(ImeContext::CONVERSION, context_.get());
-    Output(command);
-  } else {
-    // EngineConverter::Predict() resets its internal state on a first-prediction
-    // failure.  Keep Session and EngineConverter aligned and fall back to the
-    // same composition output that ordinary PredictAndConvert() uses on failure.
-    OutputComposition(command);
-  }
-  return true;
-}
 
 bool Session::PredictAndConvert(commands::Command* command) {
-  CancelPendingLiveConversion();
+  CancelPendingZenzConversion();
 
   if (context_->state() == ImeContext::CONVERSION) {
     return ConvertNext(command);
@@ -8829,42 +5778,6 @@ bool Session::CanStartAutoConversion(
   return true;
 }
 
-bool Session::CanDirectCommitPendingLiveConversionBeforeInsert(
-    const commands::KeyEvent& key_event) const {
-  const config::Config& config = context_->GetConfig();
-
-  if (!config.use_direct_commit()) {
-    return false;
-  }
-
-  // Mutual exclusion guard. Even if both are accidentally enabled in config,
-  // direct commit is disabled here.
-  if (config.use_auto_conversion()) {
-    return false;
-  }
-
-  if (context_->state() != ImeContext::COMPOSITION) {
-    return false;
-  }
-
-  // Disable if the input comes from non-standard user keyboards, like numpad.
-  if (key_event.input_style() != commands::KeyEvent::FOLLOW_MODE) {
-    return false;
-  }
-
-  // Disable in ASCII mode.
-  if (key_event.mode() == commands::HALF_ASCII ||
-      key_event.mode() == commands::FULL_ASCII) {
-    return false;
-  }
-
-  const size_t length = context_->composer().GetLength();
-  if (length == 0 || length != context_->composer().GetCursor()) {
-    return false;
-  }
-
-  return IsValidDirectCommitTriggerKey(config, key_event);
-}
 
 bool Session::CanDirectCommitAfterPunctuation(
     const commands::KeyEvent& key_event) const {
