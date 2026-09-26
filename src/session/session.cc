@@ -944,63 +944,6 @@ void AddPreeditSegment(absl::string_view key,
   segment->set_value(std::string(value));
   segment->set_value_length(Util::CharsLen(value));
 }
-void RestorePreeditSegmentKeysForSymbolStyle(
-    absl::string_view symbol_style_source,
-    commands::Preedit* preedit) {
-  if (symbol_style_source.empty() || preedit == nullptr ||
-      preedit->segment_size() == 0) {
-    return;
-  }
-
-  // Restore only display keys.  The converter-owned internal key, candidate
-  // value, and feedback key remain unchanged.  Multi-segment preedit is handled
-  // by restoring the concatenated display key and then distributing it back by
-  // the original segment key character lengths.  This is safe for wave-dash
-  // restoration because ASCII '~', FULLWIDTH TILDE '～', and WAVE DASH '〜' are
-  // all single Unicode scalar values.
-  std::string full_key;
-  std::string full_value;
-  std::vector<size_t> segment_key_char_lengths;
-  segment_key_char_lengths.reserve(preedit->segment_size());
-
-  for (int i = 0; i < preedit->segment_size(); ++i) {
-    const commands::Preedit::Segment& segment = preedit->segment(i);
-    const absl::string_view segment_key =
-        segment.has_key() && !segment.key().empty()
-            ? absl::string_view(segment.key())
-            : absl::string_view(segment.value());
-
-    full_key.append(segment_key.data(), segment_key.size());
-    full_value.append(segment.value());
-    segment_key_char_lengths.push_back(Util::CharsLen(segment_key));
-  }
-
-  const std::string restored_key =
-      ZenzOutputValidator::RestoreUserVisibleSymbolStyle(
-          symbol_style_source, full_value, full_key);
-
-  if (restored_key == full_key ||
-      Util::CharsLen(restored_key) != Util::CharsLen(full_key)) {
-    return;
-  }
-
-  size_t offset = 0;
-  for (int i = 0; i < preedit->segment_size(); ++i) {
-    const size_t segment_chars = segment_key_char_lengths[i];
-    preedit->mutable_segment(i)->set_key(
-        std::string(Util::Utf8SubString(restored_key,
-                                        offset,
-                                        segment_chars)));
-    offset += segment_chars;
-  }
-}
-
-bool IsPlainBackspaceKey(const commands::KeyEvent& key) {
-  return key.has_special_key() &&
-         key.special_key() == commands::KeyEvent::BACKSPACE &&
-         key.modifier_keys_size() == 0;
-}
-
 bool IsPendingZenzFeedbackDiscardKey(const commands::KeyEvent& key) {
   if (!key.has_special_key()) {
     return false;
@@ -1030,23 +973,6 @@ bool IsPendingDirectCommitLearningDiscardKey(
   }
 }
 
-
-void ExtractPreeditKeyAndValue(const commands::Preedit& preedit,
-                               std::string* key,
-                               std::string* value) {
-  key->clear();
-  value->clear();
-
-  for (int i = 0; i < preedit.segment_size(); ++i) {
-    const commands::Preedit::Segment& segment = preedit.segment(i);
-    value->append(segment.value());
-    if (segment.has_key() && !segment.key().empty()) {
-      key->append(segment.key());
-    } else {
-      key->append(segment.value());
-    }
-  }
-}
 
 // Set input mode if the current input mode is not the given mode.
 void SwitchInputMode(const transliteration::TransliterationType mode,
@@ -5621,48 +5547,6 @@ bool IsValidAutoConversionKey(const config::Config& config,
            last_char == "!" || last_char == "！") &&
           (config.auto_conversion_key() &
            config::Config::AUTO_CONVERSION_EXCLAMATION_MARK));
-}
-
-bool IsValidDirectCommitTriggerKey(const config::Config& config,
-                                   const commands::KeyEvent& key_event) {
-  return (MatchesKeyEvent(key_event, static_cast<uint32_t>('.'),
-                          {".", "．", "。", "｡"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_KUTEN)) ||
-         (MatchesKeyEvent(key_event, static_cast<uint32_t>(','),
-                          {",", "，", "、", "､"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_TOUTEN)) ||
-         (MatchesKeyEvent(key_event, static_cast<uint32_t>('?'),
-                          {"?", "？"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_QUESTION_MARK)) ||
-         (MatchesKeyEvent(key_event, static_cast<uint32_t>('!'),
-                          {"!", "！"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_EXCLAMATION_MARK)) ||
-         (MatchesKeyEvent(key_event, static_cast<uint32_t>('('),
-                          {"(", "（"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_OPEN_PARENTHESIS)) ||
-         (MatchesKeyEvent(key_event, static_cast<uint32_t>(')'),
-                          {")", "）"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_CLOSE_PARENTHESIS)) ||
-         (MatchesKeyEvent(key_event, static_cast<uint32_t>('['),
-                          {"[", "［", "「"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_OPEN_BRACKET)) ||
-         (MatchesKeyEvent(key_event, static_cast<uint32_t>(']'),
-                          {"]", "］", "」"}) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_CLOSE_BRACKET)) ||
-         ((MatchesString(key_event.key_string(), {"・", "･"}) ||
-           (SymbolMethodUsesMiddleDot(config) &&
-            MatchesKeyEvent(key_event, static_cast<uint32_t>('/'),
-                            {"/", "／"}))) &&
-          (config.direct_commit_key() &
-           config::Config::DIRECT_COMMIT_MIDDLE_DOT));
 }
 
 bool IsValidDirectCommitChar(const config::Config& config,
