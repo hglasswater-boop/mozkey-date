@@ -155,6 +155,30 @@ class FailingZenzClient final : public ZenzClient {
   std::atomic<bool>* completed_;
 };
 
+class SuccessfulZenzClient final : public ZenzClient {
+ public:
+  explicit SuccessfulZenzClient(std::string value,
+                                std::atomic<bool>* completed)
+      : value_(std::move(value)), completed_(completed) {}
+
+  bool IsAvailable() const override { return true; }
+
+  ZenzConversionResponse Convert(
+      const ZenzConversionRequest& request) override {
+    ZenzConversionResponse response;
+    response.generation = request.generation;
+    response.key = request.key;
+    response.value = value_;
+    response.ok = true;
+    completed_->store(true);
+    return response;
+  }
+
+ private:
+  std::string value_;
+  std::atomic<bool>* completed_;
+};
+
 #if defined(_WIN32)
 
 std::wstring JoinPathForZenzFeedbackSessionTest(
@@ -698,7 +722,7 @@ TEST_F(SessionTest, TestOfTestForSetup) {
 }
 
 TEST_F(SessionTest,
-       ZenzRunsOnlyAfterExplicitConversionAndFailureKeepsMozcCandidates) {
+       ZenzSuggestionRunsAsynchronouslyAndFailureKeepsMozcCandidates) {
   MockEngine engine;
   std::shared_ptr<MockConverter> converter =
       CreateEngineConverterMock(&engine);
@@ -722,9 +746,38 @@ TEST_F(SessionTest,
   commands::Command command;
   ASSERT_TRUE(InsertCharacterChars("aiueo", &session, &command));
   EXPECT_FALSE(inference_completed.load());
-  EXPECT_FALSE(command.output().zenz_conversion_pending());
-  EXPECT_FALSE(command.output().has_callback());
+  ASSERT_TRUE(command.output().has_callback());
+  ASSERT_EQ(command.output().callback().session_command().type(),
+            commands::SessionCommand::APPLY_ZENZ_SUGGESTION);
+  ASSERT_TRUE(command.output().has_preedit());
+  const commands::Preedit original_preedit = command.output().preedit();
+  const uint32_t suggestion_generation = command.output()
+      .callback().session_command().zenz_conversion_generation();
+  const std::string suggestion_key = command.output()
+      .callback().session_command().zenz_conversion_key();
 
+  bool suggestion_fallback_completed = false;
+  for (int i = 0; i < 200 && !suggestion_fallback_completed; ++i) {
+    commands::Command callback;
+    SetSendCommandCommand(commands::SessionCommand::APPLY_ZENZ_SUGGESTION,
+                          &callback);
+    callback.mutable_input()->mutable_command()->set_zenz_conversion_generation(
+        suggestion_generation);
+    callback.mutable_input()->mutable_command()->set_zenz_conversion_key(
+        suggestion_key);
+    ASSERT_TRUE(session.SendCommand(&callback));
+    if (!callback.output().has_callback()) {
+      EXPECT_EQ(callback.output().preedit().SerializeAsString(),
+                original_preedit.SerializeAsString());
+      suggestion_fallback_completed = true;
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+  EXPECT_TRUE(suggestion_fallback_completed);
+  EXPECT_TRUE(inference_completed.load());
+
+  inference_completed.store(false);
   const ConversionRequest request = CreateConversionRequest(session);
   Segments segments;
   SetAiueo(&segments);
@@ -775,6 +828,96 @@ TEST_F(SessionTest,
     }
   }
   EXPECT_TRUE(fallback_completed);
+}
+
+TEST_F(SessionTest, ZenzSuggestionIsSelectableAndCommitsThroughCandidateFlow) {
+  MockEngine engine;
+  CreateEngineConverterMock(&engine);
+
+  Session session(engine);
+  config::Config config;
+  config::ConfigHandler::GetDefaultConfig(&config);
+  config.set_use_zenz_conversion(true);
+  config.set_use_zenz_context(false);
+  config.set_use_zenz_feedback_learning(false);
+  config.set_allow_zenz_synthetic_candidate(true);
+  session.SetConfig(config);
+  session.SetKeyMapManager(std::make_shared<keymap::KeyMapManager>(config));
+  InitSessionToPrecomposition(&session);
+
+  std::atomic<bool> inference_completed = false;
+  SessionTestPeer(session).zenz_conversion_service() =
+      std::make_unique<ZenzConversionService>(
+          std::make_unique<SuccessfulZenzClient>("愛上尾",
+                                                 &inference_completed));
+
+  commands::Command command;
+  ASSERT_TRUE(InsertCharacterChars("aiueo", &session, &command));
+  ASSERT_TRUE(command.output().has_callback());
+  ASSERT_EQ(command.output().callback().session_command().type(),
+            commands::SessionCommand::APPLY_ZENZ_SUGGESTION);
+  ASSERT_TRUE(command.output().has_preedit());
+  const commands::Preedit original_preedit = command.output().preedit();
+  const uint32_t generation = command.output()
+                                  .callback()
+                                  .session_command()
+                                  .zenz_conversion_generation();
+  const std::string key = command.output()
+                              .callback()
+                              .session_command()
+                              .zenz_conversion_key();
+
+  bool candidate_visible = false;
+  for (int i = 0; i < 200 && !candidate_visible; ++i) {
+    commands::Command callback;
+    SetSendCommandCommand(commands::SessionCommand::APPLY_ZENZ_SUGGESTION,
+                          &callback);
+    callback.mutable_input()->mutable_command()->set_zenz_conversion_generation(
+        generation);
+    callback.mutable_input()->mutable_command()->set_zenz_conversion_key(key);
+    ASSERT_TRUE(session.SendCommand(&callback));
+    ASSERT_TRUE(callback.output().has_preedit());
+    EXPECT_EQ(callback.output().preedit().SerializeAsString(),
+              original_preedit.SerializeAsString());
+    if (callback.output().has_all_candidate_words()) {
+      for (const commands::CandidateWord& candidate :
+           callback.output().all_candidate_words().candidates()) {
+        if (candidate.id() == 0x7fffffff) {
+          EXPECT_EQ(candidate.value(), "愛上尾");
+          candidate_visible = true;
+          break;
+        }
+      }
+    }
+    if (callback.output().has_candidate_window()) {
+      for (const commands::CandidateWindow::Candidate& candidate :
+           callback.output().candidate_window().candidate()) {
+        if (candidate.id() == 0x7fffffff) {
+          EXPECT_EQ(candidate.value(), "愛上尾");
+          candidate_visible = true;
+          break;
+        }
+      }
+    }
+    if (!candidate_visible) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+  ASSERT_TRUE(candidate_visible);
+  ASSERT_TRUE(inference_completed.load());
+
+  commands::Command select;
+  SetSendCommandCommand(commands::SessionCommand::SELECT_CANDIDATE, &select);
+  select.mutable_input()->mutable_command()->set_id(0x7fffffff);
+  ASSERT_TRUE(session.SendCommand(&select));
+  ASSERT_TRUE(select.output().has_all_candidate_words());
+
+  commands::Command commit;
+  SetSendCommandCommand(commands::SessionCommand::SUBMIT_CANDIDATE, &commit);
+  commit.mutable_input()->mutable_command()->set_id(0x7fffffff);
+  ASSERT_TRUE(session.SendCommand(&commit));
+  ASSERT_TRUE(commit.output().has_result());
+  EXPECT_EQ(commit.output().result().value(), "愛上尾");
 }
 
 TEST_F(SessionTest, DisabledZenzKeepsMozcNormalConversion) {

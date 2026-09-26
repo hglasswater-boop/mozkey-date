@@ -324,8 +324,28 @@ class Session {
     uint32_t poll_count = 0;
   };
 
+  struct PendingZenzSuggestion {
+    uint32_t generation = 0;
+    std::string key;
+    std::string mozc_value;
+    std::string left_context;
+    std::string context_class;
+    std::string prompt;
+    std::vector<ProtectedConversionSpan> protected_spans;
+    absl::Time issued_at;
+    bool pending = false;
+    bool submitted = false;
+    uint32_t poll_count = 0;
+  };
+
   uint32_t zenz_conversion_generation_ = 0;
   PendingZenzConversion pending_zenz_conversion_;
+  uint32_t zenz_suggestion_generation_ = 0;
+  PendingZenzSuggestion pending_zenz_suggestion_;
+  std::string zenz_suggestion_visible_key_;
+  std::string zenz_suggestion_visible_value_;
+  std::string zenz_suggestion_visible_context_class_;
+  bool zenz_suggestion_selected_ = false;
 
   struct PendingZenzFeedback {
     enum class Action {
@@ -503,6 +523,12 @@ class Session {
   bool MaybeApplyZenzFeedbackConversion(
       mozc::commands::Command* command);
   bool MaybeScheduleZenzConversion(mozc::commands::Command* command);
+  void MaybeScheduleZenzSuggestion();
+  void AttachZenzSuggestionPollCallback(mozc::commands::Command* command) const;
+  bool ApplyZenzSuggestion(mozc::commands::Command* command);
+  bool IsCurrentZenzSuggestionCallback(
+      const mozc::commands::Command& command) const;
+  bool CommitZenzSuggestion(mozc::commands::Command* command);
   void AttachZenzConversionPollCallback(
       mozc::commands::Command* command) const;
   bool ApplyZenzConversion(mozc::commands::Command* command);
