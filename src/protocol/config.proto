@@ -470,9 +470,8 @@ message Config {
   // you haven't typed before.
   optional bool use_dictionary_suggest = 101 [default = true];
 
-  // Use realtime conversion feature. Mozkey disables this by default in
-  // ConfigHandler because normal live conversion already provides inline
-  // conversion results.
+  // Use realtime conversion suggestion. This is suggestion/prediction and is
+  // independent from the removed automatic-preedit live conversion feature.
   optional bool use_realtime_conversion = 102 [default = true];
 
   // Size of suggestions.

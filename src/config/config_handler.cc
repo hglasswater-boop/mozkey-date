@@ -107,9 +107,6 @@ void InitializeDateConversionFormats(Config* config) {
 // newer fields, and "Reset to defaults" all resolve to the same values without
 // overwriting explicit user choices.
 void ApplyMozkeyProductDefaults(Config* config) {
-  if (!config->has_use_live_conversion()) {
-    config->set_use_live_conversion(true);
-  }
   if (!config->has_show_candidate_window_on_initial_conversion()) {
     config->set_show_candidate_window_on_initial_conversion(true);
   }
@@ -119,17 +116,8 @@ void ApplyMozkeyProductDefaults(Config* config) {
   if (!config->has_direct_commit_key()) {
     config->set_direct_commit_key(kMozkeyDefaultDirectCommitKey);
   }
-  if (!config->has_use_zenz_live_correction()) {
-    config->set_use_zenz_live_correction(true);
-  }
   if (!config->has_use_zenz_feedback_learning()) {
     config->set_use_zenz_feedback_learning(true);
-  }
-  if (!config->has_use_zenz_live_correction_right_context()) {
-    config->set_use_zenz_live_correction_right_context(true);
-  }
-  if (!config->has_use_realtime_conversion()) {
-    config->set_use_realtime_conversion(false);
   }
 }
 
@@ -214,6 +202,12 @@ void NormalizeConfig(Config* config) {
   }
 
   ApplyMozkeyProductDefaults(config);
+
+  // Live conversion was removed from Mozkey Date.  Clear legacy persisted
+  // values so upgraded profiles cannot reactivate the old automatic-preedit
+  // conversion path.  Suggestion/prediction remains independent.
+  config->set_use_live_conversion(false);
+  config->set_use_zenz_live_correction(false);
 }
 
 class ConfigHandlerImpl final {

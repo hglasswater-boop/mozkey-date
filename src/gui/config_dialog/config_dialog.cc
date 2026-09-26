@@ -293,6 +293,21 @@ ConfigDialog::ConfigDialog()
           static_cast<int>(config::Config::WINDOWS_IME_ICON_DEFAULT)) {
   setupUi(this);
 
+  // Live conversion is no longer a product feature.  Keep the generated UI
+  // members temporarily while the protocol/session implementation is removed,
+  // but do not expose controls that can only configure the removed path.
+  for (QWidget *widget : findChildren<QWidget *>()) {
+    const QString name = widget->objectName();
+    if (name.contains(QStringLiteral("liveConversion"), Qt::CaseInsensitive) ||
+        name.contains(QStringLiteral("zenzLiveCorrection"),
+                      Qt::CaseInsensitive) ||
+        name == QStringLiteral("showLiveConversionRubyWindow")) {
+      widget->setVisible(false);
+    }
+  }
+  showCandidateWindowOnInitialConversionCheckBox->setText(
+      tr("Open candidate window on first conversion action"));
+
   // QScrollArea has its own viewport, and the viewport may paint a different
   // background from ordinary tab pages.  Do not paint it with a palette color
   // and do not use stylesheets here, because stylesheets can interfere with
