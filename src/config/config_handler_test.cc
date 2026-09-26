@@ -85,6 +85,7 @@ void SetMozkeyProductDefaultsForTesting(Config* config) {
   config->set_use_direct_commit(true);
   config->set_direct_commit_key(kExpectedMozkeyDirectCommitKey);
   config->set_use_zenz_conversion(true);
+  config->set_use_zenz_context(true);
   config->set_use_zenz_feedback_learning(true);
   config->set_use_zenz_right_context(true);
   config->set_use_realtime_conversion(true);

@@ -616,14 +616,15 @@ std::vector<absl::string_view> GetUtf8SuffixesForUserDictionaryLookup(
 
 void AddDirectUserDictionaryEntryProtectedSpans(
     const engine::EngineConverterInterface& converter,
-    absl::string_view live_key, absl::string_view mozc_value,
+    absl::string_view conversion_key, absl::string_view mozc_value,
     std::vector<ProtectedConversionSpan>* protected_spans) {
-  if (protected_spans == nullptr || live_key.empty() || mozc_value.empty()) {
+  if (protected_spans == nullptr || conversion_key.empty() ||
+      mozc_value.empty()) {
     return;
   }
 
   for (const absl::string_view suffix :
-       GetUtf8SuffixesForUserDictionaryLookup(live_key)) {
+       GetUtf8SuffixesForUserDictionaryLookup(conversion_key)) {
     std::vector<UserDictionaryLookupResult> entries;
     converter.LookupUserDictionaryPrefixEntries(suffix, &entries);
     for (const UserDictionaryLookupResult& entry : entries) {
@@ -644,9 +645,19 @@ void AddDirectUserDictionaryEntryProtectedSpans(
   }
 }
 
+bool CandidateWordHasAttribute(const commands::CandidateWord& candidate,
+                               commands::CandidateAttribute attribute) {
+  for (int i = 0; i < candidate.attributes_size(); ++i) {
+    if (candidate.attributes(i) == attribute) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::vector<ProtectedConversionSpan> BuildZenzProtectedConversionSpans(
     const engine::EngineConverterInterface& converter,
-    const commands::Output& output, absl::string_view live_key,
+    const commands::Output& output, absl::string_view conversion_key,
     absl::string_view mozc_value) {
   std::vector<ProtectedConversionSpan> protected_spans;
 
@@ -719,7 +730,8 @@ std::vector<ProtectedConversionSpan> BuildZenzProtectedConversionSpans(
                                      &protected_spans);
   }
 
-  AddDirectUserDictionaryEntryProtectedSpans(converter, live_key, mozc_value,
+  AddDirectUserDictionaryEntryProtectedSpans(converter, conversion_key,
+                                             mozc_value,
                                              &protected_spans);
 
   return protected_spans;
@@ -3681,7 +3693,7 @@ bool Session::OutputConversionAfterZenzStop(
   Output(command);
   command->mutable_output()->set_zenz_conversion_pending(false);
   if (!debug.empty()) {
-    command->mutable_output()->set_zenz_debug(std::string(debug));
+    command->mutable_output()->set_zenz_conversion_debug(std::string(debug));
   }
   return true;
 }
