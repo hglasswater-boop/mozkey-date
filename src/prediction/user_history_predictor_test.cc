@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -1847,6 +1848,62 @@ TEST_F(UserHistoryPredictorTest, ZeroQueryPreferenceTest) {
     EXPECT_EQ(results[0].value, "大学");
     EXPECT_EQ(results[1].value, "タワー");
   }
+}
+
+TEST_F(UserHistoryPredictorTest,
+       ConversionRankingUsesMultipleConfirmedHistorySegments) {
+  ScopedClockMock clock(absl::FromUnixSeconds(1));
+  UserHistoryPredictor* predictor = GetUserHistoryPredictorWithClearedHistory();
+  SegmentsProxy segments_proxy;
+
+  using HistorySegment =
+      std::pair<absl::string_view, absl::string_view>;
+  auto learn = [&](absl::string_view key, absl::string_view value,
+                   std::initializer_list<HistorySegment> history) {
+    segments_proxy.Clear();
+    const ConversionRequest request =
+        SetUpInputForConversion(key, &composer_, &segments_proxy);
+    segments_proxy.AddCandidate(0, value);
+    for (auto it = history.end(); it != history.begin();) {
+      --it;
+      segments_proxy.PrependHistory(it->first, it->second);
+    }
+    predictor->Finish(request, segments_proxy.MakeLearningResults(), kRevertId);
+    clock->Advance(absl::Seconds(1));
+  };
+
+  learn("あ", "亜", {});
+  learn("い", "伊", {});
+  learn("う", "宇", {});
+  learn("か", "蚊", {{"あ", "亜"}, {"い", "伊"}});
+  learn("か", "科", {{"う", "宇"}, {"い", "伊"}});
+
+  auto convert_with_history = [&](bool use_first_context) {
+    segments_proxy.Clear();
+    const ConversionRequest request =
+        SetUpInputForConversion("か", &composer_, &segments_proxy);
+    segments_proxy.PrependHistory("い", "伊");
+    segments_proxy.PrependHistory(use_first_context ? "あ" : "う",
+                                  use_first_context ? "亜" : "宇");
+    return predictor->Convert(request);
+  };
+
+  // Without confirmed context, the most recently selected candidate remains
+  // first.
+  segments_proxy.Clear();
+  const ConversionRequest no_context_request =
+      SetUpInputForConversion("か", &composer_, &segments_proxy);
+  std::vector<Result> results = predictor->Convert(no_context_request);
+  ASSERT_GE(results.size(), 2);
+  EXPECT_EQ(results[0].value, "科");
+
+  results = convert_with_history(true);
+  ASSERT_GE(results.size(), 2);
+  EXPECT_EQ(results[0].value, "蚊");
+
+  results = convert_with_history(false);
+  ASSERT_GE(results.size(), 2);
+  EXPECT_EQ(results[0].value, "科");
 }
 
 TEST_F(UserHistoryPredictorTest, MultiSegmentsMultiInput) {

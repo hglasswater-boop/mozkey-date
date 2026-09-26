@@ -2227,6 +2227,31 @@ void UserHistoryPredictor::InsertHistoryForHistorySegments(
       InsertNextEntry(next_fp, *history_entry);
     }
   }
+
+  // Learn bounded N-gram context entries from the confirmed left context.
+  // The ordinary bigram above keeps the existing last-segment behavior. These
+  // joined suffixes let LookupPrevEntry select a context-specific next-entry
+  // list when at least two preceding segments are available.
+  constexpr size_t kMaxNgramContextSegments = 3;
+  const size_t max_context_segments =
+      std::min(kMaxNgramContextSegments,
+               learning_segments.history_segments.size());
+  for (size_t context_size = 2; context_size <= max_context_segments;
+       ++context_size) {
+    std::string context_key;
+    std::string context_value;
+    const size_t first_context_segment =
+        learning_segments.history_segments.size() - context_size;
+    for (size_t i = first_context_segment;
+         i < learning_segments.history_segments.size(); ++i) {
+      absl::StrAppend(&context_key, learning_segments.history_segments[i].key);
+      absl::StrAppend(&context_value,
+                      learning_segments.history_segments[i].value);
+    }
+    Insert(request, 0, 0, context_key, context_value, "", {},
+           LearningSegmentFingerprints(conversion_segment),
+           false /* allow_partial_match */, last_access_time, revert_entries);
+  }
 }
 
 void UserHistoryPredictor::InsertHistoryForConversionSegments(
