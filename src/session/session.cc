@@ -5734,8 +5734,16 @@ void Session::Output(commands::Command* command) {
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
-  if (pending_zenz_suggestion_.pending) {
+  if (pending_zenz_suggestion_.pending &&
+      context_->GetConfig().use_zenz_conversion() &&
+      (context_->state() &
+       (ImeContext::COMPOSITION | ImeContext::PRECOMPOSITION)) &&
+      pending_zenz_suggestion_.key ==
+          context_->composer().GetQueryForConversion()) {
     AttachZenzSuggestionPollCallback(command);
+  } else if (pending_zenz_suggestion_.pending) {
+    ++zenz_suggestion_generation_;
+    pending_zenz_suggestion_ = PendingZenzSuggestion();
   }
   if (!zenz_suggestion_visible_key_.empty() &&
       zenz_suggestion_visible_key_ ==
