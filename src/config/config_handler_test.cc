@@ -79,18 +79,17 @@ constexpr uint32_t kExpectedMozkeyDirectCommitKey =
     Config::DIRECT_COMMIT_CLOSE_BRACKET;
 
 void SetMozkeyProductDefaultsForTesting(Config* config) {
-  config->set_use_live_conversion(true);
+  config->set_use_live_conversion(false);
   config->set_show_candidate_window_on_initial_conversion(true);
   config->set_use_direct_commit(true);
   config->set_direct_commit_key(kExpectedMozkeyDirectCommitKey);
-  config->set_use_zenz_live_correction(true);
+  config->set_use_zenz_live_correction(false);
   config->set_use_zenz_feedback_learning(true);
-  config->set_use_zenz_live_correction_right_context(true);
-  config->set_use_realtime_conversion(false);
+  config->set_use_realtime_conversion(true);
 }
 
 void ExpectMozkeyProductDefaults(const Config& config) {
-  EXPECT_TRUE(config.use_live_conversion());
+  EXPECT_FALSE(config.use_live_conversion());
   EXPECT_EQ(config.live_conversion_delay_msec(), 228);
   EXPECT_EQ(config.live_conversion_min_key_length(), 2);
   EXPECT_TRUE(config.show_candidate_window_on_initial_conversion());
@@ -98,7 +97,7 @@ void ExpectMozkeyProductDefaults(const Config& config) {
   EXPECT_TRUE(config.use_direct_commit());
   EXPECT_EQ(config.direct_commit_key(), kExpectedMozkeyDirectCommitKey);
 
-  EXPECT_TRUE(config.use_zenz_live_correction());
+  EXPECT_FALSE(config.use_zenz_live_correction());
   EXPECT_EQ(config.zenz_live_correction_delay_msec(), 1000);
   EXPECT_EQ(config.zenz_live_correction_timeout_msec(), 180);
   EXPECT_EQ(config.zenz_live_correction_min_key_length(), 2);
@@ -107,13 +106,12 @@ void ExpectMozkeyProductDefaults(const Config& config) {
   EXPECT_TRUE(config.use_zenz_feedback_learning());
   EXPECT_FALSE(config.use_zenz_auto_block_rejected_correction());
   EXPECT_EQ(config.zenz_auto_block_reject_threshold(), 3);
-  EXPECT_TRUE(config.use_zenz_live_correction_right_context());
   EXPECT_EQ(config.zenz_live_correction_right_context_length(), 24);
 
   EXPECT_EQ(config.history_learning_level(), Config::DEFAULT_HISTORY);
   EXPECT_TRUE(config.use_history_suggest());
   EXPECT_TRUE(config.use_dictionary_suggest());
-  EXPECT_FALSE(config.use_realtime_conversion());
+  EXPECT_TRUE(config.use_realtime_conversion());
   EXPECT_EQ(config.suggestions_size(), 3);
 }
 
@@ -204,6 +202,26 @@ TEST_F(ConfigHandlerTest, MozkeyProductDefaultsPreserveExplicitSettings) {
   EXPECT_FALSE(output.use_zenz_live_correction());
   EXPECT_FALSE(output.use_zenz_feedback_learning());
   EXPECT_FALSE(output.use_zenz_live_correction_right_context());
+  EXPECT_TRUE(output.use_realtime_conversion());
+}
+
+TEST_F(ConfigHandlerTest, LegacyLiveConversionIsForcedOff) {
+  TempDirectory temp_dir = testing::MakeTempDirectoryOrDie();
+  const std::string config_file =
+      FileUtil::JoinPath(temp_dir.path(), "mozc_config_test_tmp");
+  ASSERT_OK(FileUtil::UnlinkIfExists(config_file));
+  ConfigHandler::SetConfigFileNameForTesting(config_file);
+  ConfigHandler::Reload();
+
+  Config input;
+  input.set_use_live_conversion(true);
+  input.set_use_zenz_live_correction(true);
+  input.set_use_realtime_conversion(true);
+  ConfigHandler::SetConfig(input);
+
+  const Config output = ConfigHandler::GetCopiedConfig();
+  EXPECT_FALSE(output.use_live_conversion());
+  EXPECT_FALSE(output.use_zenz_live_correction());
   EXPECT_TRUE(output.use_realtime_conversion());
 }
 

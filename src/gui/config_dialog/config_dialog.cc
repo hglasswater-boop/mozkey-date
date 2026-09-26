@@ -301,7 +301,9 @@ ConfigDialog::ConfigDialog()
     if (name.contains(QStringLiteral("liveConversion"), Qt::CaseInsensitive) ||
         name.contains(QStringLiteral("zenzLiveCorrection"),
                       Qt::CaseInsensitive) ||
-        name == QStringLiteral("showLiveConversionRubyWindow")) {
+        name.contains(QStringLiteral("zenzFeedback"), Qt::CaseInsensitive) ||
+        name == QStringLiteral("showLiveConversionRubyWindow") ||
+        name == QStringLiteral("editZenzFeedbackButton")) {
       widget->setVisible(false);
     }
   }
