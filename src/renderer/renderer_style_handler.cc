@@ -62,15 +62,6 @@ void SetRgbColor(RendererStyle::RGBAColor* color, uint32_t rgb) {
            static_cast<int>(rgb & 0xff));
 }
 
-uint32_t ToRgb(const RendererStyle::RGBAColor& color, uint32_t fallback) {
-  if (!color.IsInitialized()) {
-    return fallback;
-  }
-  return ((static_cast<uint32_t>(color.r()) & 0xff) << 16) |
-         ((static_cast<uint32_t>(color.g()) & 0xff) << 8) |
-         (static_cast<uint32_t>(color.b()) & 0xff);
-}
-
 int ScaleIntegerMetric(int value, uint32_t percent) {
   if (value <= 0) {
     return 0;
