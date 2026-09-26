@@ -87,7 +87,7 @@ void SetMozkeyProductDefaultsForTesting(Config* config) {
   config->set_use_zenz_conversion(true);
   config->set_use_zenz_feedback_learning(true);
   config->set_use_zenz_right_context(true);
-  config->set_use_realtime_conversion(false);
+  config->set_use_realtime_conversion(true);
 }
 
 void ExpectMozkeyProductDefaults(const Config& config) {
@@ -110,7 +110,7 @@ void ExpectMozkeyProductDefaults(const Config& config) {
   EXPECT_EQ(config.history_learning_level(), Config::DEFAULT_HISTORY);
   EXPECT_TRUE(config.use_history_suggest());
   EXPECT_TRUE(config.use_dictionary_suggest());
-  EXPECT_FALSE(config.use_realtime_conversion());
+  EXPECT_TRUE(config.use_realtime_conversion());
   EXPECT_EQ(config.suggestions_size(), 3);
 }
 

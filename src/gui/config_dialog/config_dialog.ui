@@ -2327,7 +2327,7 @@
             <item row="4" column="0" colspan="3">
              <widget class="QCheckBox" name="realtimeConversionCheckBox">
               <property name="text">
-               <string>Use realtime conversion</string>
+               <string>Use realtime conversion for suggestions</string>
               </property>
              </widget>
             </item>

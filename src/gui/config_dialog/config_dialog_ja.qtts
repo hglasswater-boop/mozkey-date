@@ -311,8 +311,8 @@
     </message>
     <message>
         <location filename="config_dialog.ui" line="989"/>
-        <source>Use realtime conversion</source>
-        <translation>リアルタイム変換を有効にする</translation>
+        <source>Use realtime conversion for suggestions</source>
+        <translation>推測候補にリアルタイム変換を使用する</translation>
     </message>
     <message>
         <location filename="config_dialog.ui" line="1083"/>
