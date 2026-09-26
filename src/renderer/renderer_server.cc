@@ -185,16 +185,6 @@ void BuildCandidateLikeStyle(ColorTheme theme, const CandidatePalette& palette,
       ClampWindowSizePercent(size_percent), style);
 }
 
-uint32_t RgbFromColor(const RendererStyle::RGBAColor& color,
-                      uint32_t fallback) {
-  if (!color.IsInitialized()) {
-    return fallback;
-  }
-  return ((static_cast<uint32_t>(color.r()) & 0xff) << 16) |
-         ((static_cast<uint32_t>(color.g()) & 0xff) << 8) |
-         (static_cast<uint32_t>(color.b()) & 0xff);
-}
-
 void UpdateRendererStyleFromConfig() {
   config::ConfigHandler::Reload();
 
