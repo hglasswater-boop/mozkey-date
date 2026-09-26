@@ -426,11 +426,11 @@ message Config {
 
   // Learn explicitly selected alternatives from direct symbol-key input
   // during prediction/suggestion. Existing conversion history is unchanged.
-  optional bool use_symbol_choice_learning = 1031 [default = true];
+  optional bool use_symbol_choice_learning = 1044 [default = true];
 
   // Include punctuation such as 、。,. in symbol-choice learning.
   // Effective only when use_symbol_choice_learning is enabled.
-  optional bool use_punctuation_choice_learning = 1032 [default = false];
+  optional bool use_punctuation_choice_learning = 1045 [default = false];
 
   // If use_emoji_conversion is true, the user can input emoji characters
   // by converting from a query string (e.g. "いぬ → 🐶" [U+1F436]).
