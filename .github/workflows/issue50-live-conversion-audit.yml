@@ -16,17 +16,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            src
-            docs
-            README.md
-            .github
-          sparse-checkout-cone-mode: false
-          fetch-depth: 1
-      - name: List live conversion references
+          fetch-depth: 0
+      - name: Probe foundational live-conversion revert
         shell: bash
         run: |
-          set -uo pipefail
+          set +e
+          echo '=== ANCESTRY ==='
+          git cat-file -t cd2005ae31bbeb3dd67f646695eb29f111b89068
+          git merge-base --is-ancestor cd2005ae31bbeb3dd67f646695eb29f111b89068 HEAD
+          echo "ancestor_exit=$?"
+          echo '=== DRY REVERT ==='
+          git config user.name issue50-audit
+          git config user.email issue50-audit@users.noreply.github.com
+          git revert -m 1 --no-commit cd2005ae31bbeb3dd67f646695eb29f111b89068
+          revert_exit=$?
+          echo "revert_exit=${revert_exit}"
+          git status --short
+          echo '=== CONFLICTS ==='
+          git diff --name-only --diff-filter=U || true
+          echo '=== DIFF STAT ==='
+          git diff --stat || true
+          git revert --abort >/dev/null 2>&1 || git reset --hard HEAD >/dev/null 2>&1
           echo '=== LIVE CONVERSION REFERENCES ==='
           git grep -n -I -E 'use_live_conversion|live_conversion|LiveConversion|LIVE_CONVERSION|zenz_live|ZenzLive|show_live_conversion|APPLY_ZENZ_LIVE_CORRECTION' -- src README.md docs .github || true
-          echo '=== END REFERENCES ==='
+          exit 0
