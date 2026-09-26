@@ -464,6 +464,9 @@ message SessionCommand {
 
     // Polls or applies Zenz inference started by an explicit normal conversion.
     APPLY_ZENZ_CONVERSION = 31;
+
+    // Polls or applies a Zenz candidate for the current suggestion list.
+    APPLY_ZENZ_SUGGESTION = 32;
   }
   required CommandType type = 1;
 

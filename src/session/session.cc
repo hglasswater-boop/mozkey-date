@@ -188,7 +188,9 @@ constexpr size_t kMinRerankedPreeditCommitCharsAfterConvertCancel = 2;
 
 constexpr uint32_t kDefaultZenzConversionTimeoutMsec = 1000;
 constexpr uint32_t kDefaultZenzConversionPollMsec = 24;
+constexpr uint32_t kZenzSuggestionDebounceMsec = 250;
 constexpr uint32_t kMinimumZenzConversionKeyLength = 2;
+constexpr int32_t kZenzSuggestionCandidateId = 0x7fffffff;
 constexpr uint32_t kMaxZenzConversionRightContextLength = 128;
 constexpr uint32_t kMaxZenzConversionTimeoutMsec = 1000;
 
@@ -1368,6 +1370,10 @@ bool Session::SendCommand(commands::Command* command) {
 
     case commands::SessionCommand::APPLY_ZENZ_CONVERSION:
       result = ApplyZenzConversion(command);
+      break;
+
+    case commands::SessionCommand::APPLY_ZENZ_SUGGESTION:
+      result = ApplyZenzSuggestion(command);
       break;
 
     case commands::SessionCommand::RECONVERT_SELECTION_OR_INSERT_SPACE:
@@ -2645,6 +2651,14 @@ bool Session::SelectCandidateInternal(commands::Command* command) {
     LOG(WARNING) << "input.command or input.command.id did not exist.";
     return false;
   }
+  if (command->input().command().id() == kZenzSuggestionCandidateId &&
+      !zenz_suggestion_visible_key_.empty() &&
+      zenz_suggestion_visible_key_ ==
+          context_->composer().GetQueryForConversion()) {
+    command->mutable_output()->set_consumed(true);
+    zenz_suggestion_selected_ = true;
+    return true;
+  }
   if (!context_->converter().IsActive()) {
     LOG(WARNING) << "converter is not active. (no candidates)";
     return false;
@@ -2652,6 +2666,7 @@ bool Session::SelectCandidateInternal(commands::Command* command) {
 
   command->mutable_output()->set_consumed(true);
 
+  zenz_suggestion_selected_ = false;
   context_->mutable_converter()->CandidateMoveToId(
       command->input().command().id(), context_->composer());
   SetSessionState(ImeContext::CONVERSION, context_.get());
@@ -2676,6 +2691,9 @@ bool Session::CommitCandidate(commands::Command* command) {
   if (!input.has_command() || !input.command().has_id()) {
     LOG(WARNING) << "input.command or input.command.id did not exist.";
     return false;
+  }
+  if (input.command().id() == kZenzSuggestionCandidateId) {
+    return CommitZenzSuggestion(command);
   }
   if (!context_->converter().IsActive()) {
     LOG(WARNING) << "converter is not active. (no candidates)";
@@ -3570,6 +3588,224 @@ bool Session::MaybeScheduleZenzConversion(commands::Command* command) {
       command, /*refresh_output_on_submit=*/false);
 }
 
+void Session::MaybeScheduleZenzSuggestion() {
+  const config::Config& config = context_->GetConfig();
+  const std::string key = context_->composer().GetQueryForConversion();
+  if (!config.use_zenz_conversion() ||
+      !(context_->state() &
+        (ImeContext::COMPOSITION | ImeContext::PRECOMPOSITION)) ||
+      key.empty() ||
+      context_->composer().GetInputFieldType() == commands::Context::PASSWORD ||
+      Util::CharsLen(key) < kMinimumZenzConversionKeyLength) {
+    return;
+  }
+
+  commands::Output mozc_output;
+  context_->converter().FillOutput(context_->composer(), &mozc_output);
+  std::string mozc_value;
+  if (mozc_output.has_all_candidate_words() &&
+      mozc_output.all_candidate_words().candidates_size() > 0) {
+    const commands::CandidateList& candidates =
+        mozc_output.all_candidate_words();
+    const int focused_index = candidates.has_focused_index()
+                                  ? candidates.focused_index()
+                                  : 0;
+    for (const commands::CandidateWord& candidate : candidates.candidates()) {
+      if (candidate.index() == focused_index) {
+        mozc_value = candidate.value();
+        break;
+      }
+    }
+  }
+  if (mozc_value.empty() && mozc_output.has_candidate_window() &&
+      mozc_output.candidate_window().candidate_size() > 0) {
+    mozc_value = mozc_output.candidate_window().candidate(0).value();
+  }
+  if (mozc_value.empty()) {
+    mozc_value = context_->composer().GetStringForSubmission();
+  }
+  if (mozc_value.empty()) {
+    return;
+  }
+
+  if (!EvaluateZenzConversionKeyPrivacy(key).allow ||
+      !EvaluateZenzConversionValuePrivacy(mozc_value).allow) {
+    return;
+  }
+
+  const std::vector<ProtectedConversionSpan> protected_spans =
+      BuildZenzProtectedConversionSpans(context_->converter(), mozc_output, key,
+                                        mozc_value);
+  const ZenzClientContextView client_context =
+      GetZenzClientContextView(context_->client_context());
+  ZenzContextAssemblyInput context_input;
+  context_input.preceding_text = client_context.preceding_text;
+  context_input.following_text = client_context.following_text;
+  context_input.left_max_chars = GetZenzConversionLeftContextLength(config);
+  context_input.right_max_chars = GetZenzConversionRightContextLength(config);
+  const ZenzContextAssemblyResult assembled_context =
+      zenz_context_assembler_.Assemble(context_input);
+
+  ZenzPromptOptions prompt_options;
+  prompt_options.left_context = assembled_context.left.prompt_context;
+  prompt_options.right_context = assembled_context.right.prompt_context;
+  prompt_options.profile = config.zenz_profile();
+  prompt_options.topic = config.zenz_topic();
+  prompt_options.style = config.zenz_style();
+  prompt_options.settings = config.zenz_settings();
+  ZenzProtectedPromptInput protected_prompt_input;
+  protected_prompt_input.key = key;
+  protected_prompt_input.protected_spans = protected_spans;
+  const ZenzProtectedPromptResult protected_prompt =
+      zenz_adoption_policy_.ProtectPromptKey(protected_prompt_input);
+  ZenzPromptBuilder prompt_builder;
+
+  pending_zenz_suggestion_ = PendingZenzSuggestion();
+  pending_zenz_suggestion_.generation = zenz_suggestion_generation_;
+  pending_zenz_suggestion_.key = key;
+  pending_zenz_suggestion_.mozc_value = mozc_value;
+  pending_zenz_suggestion_.left_context =
+      assembled_context.left.prompt_context;
+  pending_zenz_suggestion_.context_class =
+      assembled_context.left.context_class;
+  pending_zenz_suggestion_.prompt =
+      prompt_builder.Build(protected_prompt.key, prompt_options);
+  pending_zenz_suggestion_.protected_spans = protected_prompt.protected_spans;
+  pending_zenz_suggestion_.issued_at = Clock::GetAbslTime();
+  pending_zenz_suggestion_.pending = true;
+}
+
+void Session::AttachZenzSuggestionPollCallback(
+    commands::Command* command) const {
+  commands::Output::Callback* callback =
+      command->mutable_output()->mutable_callback();
+  commands::SessionCommand* session_command =
+      callback->mutable_session_command();
+  session_command->set_type(commands::SessionCommand::APPLY_ZENZ_SUGGESTION);
+  session_command->set_zenz_conversion_generation(
+      pending_zenz_suggestion_.generation);
+  session_command->set_zenz_conversion_key(pending_zenz_suggestion_.key);
+  callback->set_delay_millisec(pending_zenz_suggestion_.submitted
+                                   ? kDefaultZenzConversionPollMsec
+                                   : kZenzSuggestionDebounceMsec);
+}
+
+bool Session::IsCurrentZenzSuggestionCallback(
+    const commands::Command& command) const {
+  if (!pending_zenz_suggestion_.pending ||
+      !(context_->state() &
+        (ImeContext::COMPOSITION | ImeContext::PRECOMPOSITION)) ||
+      context_->composer().GetQueryForConversion() !=
+          pending_zenz_suggestion_.key ||
+      !command.input().has_command()) {
+    return false;
+  }
+  const commands::SessionCommand& session_command = command.input().command();
+  return session_command.has_zenz_conversion_generation() &&
+         session_command.zenz_conversion_generation() ==
+             pending_zenz_suggestion_.generation &&
+         session_command.has_zenz_conversion_key() &&
+         session_command.zenz_conversion_key() == pending_zenz_suggestion_.key;
+}
+
+bool Session::ApplyZenzSuggestion(commands::Command* command) {
+  command->mutable_output()->set_consumed(true);
+  if (!IsCurrentZenzSuggestionCallback(*command)) {
+    return DoNothing(command);
+  }
+
+  const config::Config& config = context_->GetConfig();
+  const uint32_t timeout_msec = GetZenzConversionTimeoutMsec(config);
+  if (!pending_zenz_suggestion_.submitted) {
+    pending_zenz_suggestion_.submitted = true;
+    pending_zenz_suggestion_.issued_at = Clock::GetAbslTime();
+    ZenzConversionRequest request;
+    request.generation = pending_zenz_suggestion_.generation;
+    request.key = pending_zenz_suggestion_.key;
+    request.prompt = pending_zenz_suggestion_.prompt;
+    request.left_context = pending_zenz_suggestion_.left_context;
+    request.mozc_value = pending_zenz_suggestion_.mozc_value;
+    request.pipe_name = config.zenz_pipe_name();
+    request.timeout_msec = timeout_msec;
+    request.max_output_chars = 256;
+    request.issued_at = pending_zenz_suggestion_.issued_at;
+    ZenzPromptBuilder prompt_builder;
+    request.reading_katakana =
+        prompt_builder.HiraganaToKatakana(pending_zenz_suggestion_.key);
+    EnsureZenzConversionService()->Submit(std::move(request));
+    Output(command);
+    return true;
+  }
+
+  std::optional<ZenzConversionResponse> response =
+      zenz_conversion_service_->TakeResult(pending_zenz_suggestion_.generation);
+  if (!response.has_value()) {
+    ++pending_zenz_suggestion_.poll_count;
+    const uint32_t max_poll_count =
+        std::max<uint32_t>(
+            1, timeout_msec / kDefaultZenzConversionPollMsec + 2);
+    if (Clock::GetAbslTime() - pending_zenz_suggestion_.issued_at >=
+            absl::Milliseconds(timeout_msec) ||
+        pending_zenz_suggestion_.poll_count >= max_poll_count) {
+      pending_zenz_suggestion_ = PendingZenzSuggestion();
+      Output(command);
+      return true;
+    }
+    Output(command);
+    return true;
+  }
+
+  std::string value = response->value;
+  if (!response->ok || response->timeout ||
+      response->generation != pending_zenz_suggestion_.generation ||
+      (!response->key.empty() &&
+       response->key != pending_zenz_suggestion_.key)) {
+    pending_zenz_suggestion_ = PendingZenzSuggestion();
+    Output(command);
+    return true;
+  }
+  if (!pending_zenz_suggestion_.left_context.empty() &&
+      StartsWithString(value, pending_zenz_suggestion_.left_context)) {
+    value.erase(0, pending_zenz_suggestion_.left_context.size());
+  }
+  value = zenz_adoption_policy_.RestorePlaceholders(
+      value, pending_zenz_suggestion_.protected_spans);
+  value = ZenzOutputValidator::RestoreUserVisibleSymbolStyle(
+      pending_zenz_suggestion_.key, pending_zenz_suggestion_.mozc_value, value);
+  ZenzValidationInput validation_input;
+  validation_input.key = pending_zenz_suggestion_.key;
+  validation_input.mozc_value = pending_zenz_suggestion_.mozc_value;
+  validation_input.zenz_value = value;
+  validation_input.left_context = pending_zenz_suggestion_.left_context;
+  validation_input.min_key_length = kMinimumZenzConversionKeyLength;
+  validation_input.allow_synthetic_candidate =
+      config.allow_zenz_synthetic_candidate();
+  if (!zenz_output_validator_.Validate(validation_input).accept) {
+    pending_zenz_suggestion_ = PendingZenzSuggestion();
+    Output(command);
+    return true;
+  }
+  ZenzAdoptionInput adoption_input;
+  adoption_input.key = pending_zenz_suggestion_.key;
+  adoption_input.mozc_value = pending_zenz_suggestion_.mozc_value;
+  adoption_input.zenz_value = value;
+  adoption_input.protected_spans = pending_zenz_suggestion_.protected_spans;
+  const ZenzAdoptionResult adoption =
+      zenz_adoption_policy_.Decide(adoption_input);
+  const std::string key = pending_zenz_suggestion_.key;
+  const std::string context_class = pending_zenz_suggestion_.context_class;
+  pending_zenz_suggestion_ = PendingZenzSuggestion();
+  if (adoption.action != ZenzAdoptionResult::Action::kReject &&
+      EvaluateZenzConversionValuePrivacy(adoption.value).allow) {
+    zenz_suggestion_visible_key_ = key;
+    zenz_suggestion_visible_value_ = adoption.value;
+    zenz_suggestion_visible_context_class_ = context_class;
+    zenz_suggestion_selected_ = false;
+  }
+  Output(command);
+  return true;
+}
+
 void Session::AttachZenzConversionPollCallback(
     commands::Command* command) const {
   commands::Output::Callback* callback =
@@ -4387,6 +4623,9 @@ bool Session::CommitInternal(commands::Command* command,
 }
 
 bool Session::Commit(commands::Command* command) {
+  if (zenz_suggestion_selected_ && !zenz_suggestion_visible_key_.empty()) {
+    return CommitZenzSuggestion(command);
+  }
   if (CommitZenzConversionResult(command)) {
     return true;
   }
@@ -4421,6 +4660,11 @@ bool Session::CommitFirstSuggestion(commands::Command* command) {
   if (!(context_->state() == ImeContext::COMPOSITION ||
         context_->state() == ImeContext::PRECOMPOSITION)) {
     return DoNothing(command);
+  }
+  if (!zenz_suggestion_visible_key_.empty() &&
+      zenz_suggestion_visible_key_ ==
+          context_->composer().GetQueryForConversion()) {
+    return CommitZenzSuggestion(command);
   }
   if (!context_->converter().IsActive()) {
     return DoNothing(command);
@@ -4619,6 +4863,13 @@ bool ShouldSuppressShiftedAsciiAutoSuggestion(
 }  // namespace
 
 bool Session::Suggest(const commands::Input& input) {
+  ++zenz_suggestion_generation_;
+  pending_zenz_suggestion_ = PendingZenzSuggestion();
+  zenz_suggestion_visible_key_.clear();
+  zenz_suggestion_visible_value_.clear();
+  zenz_suggestion_visible_context_class_.clear();
+  zenz_suggestion_selected_ = false;
+
   if (SuppressSuggestion(input)) {
     return false;
   }
@@ -4639,17 +4890,47 @@ bool Session::Suggest(const commands::Input& input) {
   // cases).
   //
   // TODO(komatsu): Move the logic into EngineConverter.
+  bool suggested = false;
   if (input.has_request_suggestion() &&
       input.type() == commands::Input::SEND_KEY) {
     ConversionPreferences conversion_preferences =
         context_->converter().conversion_preferences();
     conversion_preferences.request_suggestion = input.request_suggestion();
-    return context_->mutable_converter()->SuggestWithPreferences(
+    suggested = context_->mutable_converter()->SuggestWithPreferences(
         context_->composer(), input.context(), conversion_preferences);
+  } else {
+    suggested = context_->mutable_converter()->Suggest(context_->composer(),
+                                                       input.context());
   }
 
-  return context_->mutable_converter()->Suggest(context_->composer(),
-                                                input.context());
+  if (suggested) {
+    MaybeScheduleZenzSuggestion();
+  }
+  return suggested;
+}
+
+bool Session::CommitZenzSuggestion(commands::Command* command) {
+  if (zenz_suggestion_visible_key_.empty() ||
+      zenz_suggestion_visible_key_ !=
+          context_->composer().GetQueryForConversion() ||
+      !(context_->state() &
+        (ImeContext::COMPOSITION | ImeContext::PRECOMPOSITION))) {
+    return DoNothing(command);
+  }
+  const std::string key = zenz_suggestion_visible_key_;
+  const std::string value = zenz_suggestion_visible_value_;
+  const std::string context_class = zenz_suggestion_visible_context_class_;
+  command->mutable_output()->set_consumed(true);
+  PushUndoContext();
+  SetPendingZenzFeedbackAccepted(key, context_class, value);
+  ++zenz_suggestion_generation_;
+  pending_zenz_suggestion_ = PendingZenzSuggestion();
+  zenz_suggestion_visible_key_.clear();
+  zenz_suggestion_visible_value_.clear();
+  zenz_suggestion_visible_context_class_.clear();
+  zenz_suggestion_selected_ = false;
+  CommitStringDirectly(key, value, command);
+  return true;
 }
 
 
@@ -4990,6 +5271,12 @@ bool Session::Convert(commands::Command* command) {
 
 bool Session::ConvertInternal(commands::Command* command, bool run_zenz) {
   CancelPendingZenzConversion();
+  ++zenz_suggestion_generation_;
+  pending_zenz_suggestion_ = PendingZenzSuggestion();
+  zenz_suggestion_visible_key_.clear();
+  zenz_suggestion_visible_value_.clear();
+  zenz_suggestion_visible_context_class_.clear();
+  zenz_suggestion_selected_ = false;
   command->mutable_output()->set_consumed(true);
   const std::string composition = context_->composer().GetQueryForConversion();
   const bool should_show_candidate_window_on_initial_conversion =
@@ -5388,10 +5675,86 @@ void Session::OutputFromState(commands::Command* command) {
   Output(command);
 }
 
+namespace {
+
+void AddZenzSuggestionCandidate(commands::Output* output,
+                               absl::string_view key,
+                               absl::string_view value,
+                               bool focused) {
+  if (output->has_all_candidate_words()) {
+    const commands::CandidateList original = output->all_candidate_words();
+    commands::CandidateList* candidates = output->mutable_all_candidate_words();
+    *candidates = original;
+    candidates->clear_candidates();
+    if (focused) {
+      candidates->set_focused_index(0);
+    } else if (original.has_focused_index()) {
+      candidates->set_focused_index(original.focused_index() + 1);
+    }
+    commands::CandidateWord* zenz_candidate = candidates->add_candidates();
+    zenz_candidate->set_id(kZenzSuggestionCandidateId);
+    zenz_candidate->set_index(0);
+    zenz_candidate->set_key(std::string(key));
+    zenz_candidate->set_value(std::string(value));
+    zenz_candidate->set_num_segments_in_candidate(1);
+    for (const commands::CandidateWord& candidate : original.candidates()) {
+      commands::CandidateWord* copy = candidates->add_candidates();
+      *copy = candidate;
+      copy->set_index(candidate.index() + 1);
+    }
+  }
+
+  if (output->has_candidate_window()) {
+    const commands::CandidateWindow original = output->candidate_window();
+    commands::CandidateWindow* window = output->mutable_candidate_window();
+    *window = original;
+    window->clear_candidate();
+    window->set_size(original.size() + 1);
+    if (focused) {
+      window->set_focused_index(0);
+    } else if (original.has_focused_index()) {
+      window->set_focused_index(original.focused_index() + 1);
+    }
+    commands::CandidateWindow::Candidate* zenz_candidate =
+        window->add_candidate();
+    zenz_candidate->set_id(kZenzSuggestionCandidateId);
+    zenz_candidate->set_index(0);
+    zenz_candidate->set_value(std::string(value));
+    for (int i = 0; i < original.candidate_size(); ++i) {
+      commands::CandidateWindow::Candidate* copy = window->add_candidate();
+      *copy = original.candidate(i);
+      copy->set_index(original.candidate(i).index() + 1);
+    }
+  }
+}
+
+}  // namespace
+
 void Session::Output(commands::Command* command) {
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
+  if (pending_zenz_suggestion_.pending &&
+      context_->GetConfig().use_zenz_conversion() &&
+      (context_->state() &
+       (ImeContext::COMPOSITION | ImeContext::PRECOMPOSITION)) &&
+      pending_zenz_suggestion_.key ==
+          context_->composer().GetQueryForConversion()) {
+    AttachZenzSuggestionPollCallback(command);
+  } else if (pending_zenz_suggestion_.pending) {
+    ++zenz_suggestion_generation_;
+    pending_zenz_suggestion_ = PendingZenzSuggestion();
+  }
+  if (!zenz_suggestion_visible_key_.empty() &&
+      zenz_suggestion_visible_key_ ==
+          context_->composer().GetQueryForConversion() &&
+      (context_->state() &
+       (ImeContext::COMPOSITION | ImeContext::PRECOMPOSITION))) {
+    AddZenzSuggestionCandidate(command->mutable_output(),
+                               zenz_suggestion_visible_key_,
+                               zenz_suggestion_visible_value_,
+                               zenz_suggestion_selected_);
+  }
   ObservePendingZenzFeedbackCommittedResult(*command, "output_result");
 }
 
