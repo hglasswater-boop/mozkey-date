@@ -388,7 +388,7 @@ message Config {
   optional string zenz_settings = 1041 [default = ""];
 
   // Right-side context is read only when context sharing is enabled.
-  optional bool use_zenz_right_context = 1042 [default = false];
+  optional bool use_zenz_right_context = 1042 [default = true];
   optional uint32 zenz_context_right_length = 1043 [default = 24];
 
   //////////////////////////////////////////////////////////////
