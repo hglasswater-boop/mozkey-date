@@ -438,6 +438,26 @@
             <property name="bottomMargin">
              <number>9</number>
             </property>
+            <item row="2" column="0" colspan="2">
+             <widget class="QCheckBox" name="symbolChoiceLearningCheckBox">
+              <property name="text">
+               <string>記号の選択を学習する</string>
+              </property>
+              <property name="toolTip">
+               <string>ライブ変換・予測で明示的に選んだ記号を次回から優先します。数字・英字キーは対象外です。</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0" colspan="2">
+             <widget class="QCheckBox" name="punctuationChoiceLearningCheckBox">
+              <property name="text">
+               <string>句読点の選択も学習する</string>
+              </property>
+              <property name="toolTip">
+               <string>「、。,.」などの句読点も記号選択学習の対象にします。</string>
+              </property>
+             </widget>
+            </item>
             <item row="1" column="1">
              <widget class="QPushButton" name="clearUserHistoryButton">
               <property name="text">

@@ -134,6 +134,55 @@ NumberUtil::NumberString::Style GetStyle(
   }
 }
 
+bool IsAsciiAlphaNumericKey(absl::string_view key) {
+  if (key.size() != 1) {
+    return false;
+  }
+  const unsigned char c = static_cast<unsigned char>(key[0]);
+  return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+         (c >= 'a' && c <= 'z');
+}
+
+bool IsPunctuationForSymbolChoice(absl::string_view value) {
+  return value == "。" || value == "｡" || value == "、" || value == "､" ||
+         value == "，" || value == "," || value == "．" || value == ".";
+}
+
+bool IsDirectSymbolKey(const Segment& segment) {
+  if (segment.key_len() != 1 || IsAsciiAlphaNumericKey(segment.key())) {
+    return false;
+  }
+  const Util::ScriptType script_type = Util::GetScriptType(segment.key());
+  if (script_type == Util::NUMBER || script_type == Util::ALPHABET) {
+    return false;
+  }
+  return script_type == Util::UNKNOWN_SCRIPT ||
+         Util::IsKanaSymbolContained(segment.key());
+}
+
+// Live prediction normally leaves character-form learning to the predictor.
+// Only an explicitly selected alternative from a direct symbol source key
+// enters this path. Candidate metadata cannot turn a digit/letter into one.
+bool IsExplicitSymbolKeyVariantChoice(const Segment& segment,
+                                      const Candidate& candidate,
+                                      const PosMatcher& pos_matcher,
+                                      bool allow_punctuation) {
+  if (!IsDirectSymbolKey(segment) ||
+      !(candidate.attributes & Attribute::RERANKED) ||
+      candidate.value == segment.key()) {
+    return false;
+  }
+  if (!allow_punctuation && (IsPunctuationForSymbolChoice(segment.key()) ||
+                             IsPunctuationForSymbolChoice(candidate.value))) {
+    return false;
+  }
+  if (candidate.category == Candidate::SYMBOL) {
+    return true;
+  }
+  return pos_matcher.IsJapanesePunctuations(candidate.lid) &&
+         candidate.lid == candidate.rid;
+}
+
 }  // namespace
 
 // static
@@ -569,13 +618,28 @@ bool VariantsRewriter::GenerateAlternatives(
 
 void VariantsRewriter::Finish(const ConversionRequest& request,
                               const Segments& segments) {
+  if (request.incognito_mode()) {
+    return;
+  }
   if (request.config().history_learning_level() !=
       config::Config::DEFAULT_HISTORY) {
     MOZC_VLOG(2) << "history_learning_level is not DEFAULT_HISTORY";
     return;
   }
-  if (!request.request().mixed_conversion() &&
-      request.request_type() != ConversionRequest::CONVERSION) {
+  const bool symbol_choice_only =
+      !request.request().mixed_conversion() &&
+      request.request_type() != ConversionRequest::CONVERSION;
+  const bool is_prediction_or_suggestion =
+      request.request_type() == ConversionRequest::PREDICTION ||
+      request.request_type() == ConversionRequest::SUGGESTION ||
+      request.request_type() == ConversionRequest::PARTIAL_PREDICTION ||
+      request.request_type() == ConversionRequest::PARTIAL_SUGGESTION;
+  if (symbol_choice_only && !request.config().use_symbol_choice_learning()) {
+    return;
+  }
+  if (symbol_choice_only &&
+      (!is_prediction_or_suggestion ||
+       !request.options().enable_user_history_for_conversion)) {
     return;
   }
 
@@ -588,6 +652,15 @@ void VariantsRewriter::Finish(const ConversionRequest& request,
     }
 
     const Candidate& candidate = segment.candidate(0);
+    // Desktop prediction normally does not learn character forms. Explicitly
+    // selected symbol-key alternatives also need width learning: segment
+    // history preserves the promoted candidate's selected form on later use.
+    if (symbol_choice_only &&
+        !IsExplicitSymbolKeyVariantChoice(
+            segment, candidate, pos_matcher_,
+            request.config().use_punctuation_choice_learning())) {
+      continue;
+    }
     if (candidate.attributes & Attribute::NO_VARIANTS_EXPANSION) {
       continue;
     }
