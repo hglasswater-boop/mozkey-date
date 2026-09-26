@@ -18,65 +18,51 @@ jobs:
         with:
           ref: issue-50-remove-live-conversion
           fetch-depth: 1
-      - name: Remove live conversion from product paths
+      - name: Remove remaining product-facing live conversion paths
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          def replace_once(path, old, new):
-              p = Path(path)
-              s = p.read_text(encoding='utf-8')
-              if old not in s:
-                  raise SystemExit(f'expected block not found: {path}')
-              p.write_text(s.replace(old, new, 1), encoding='utf-8')
-
-          path = 'src/config/config_handler.cc'
-          p = Path(path)
-          s = p.read_text(encoding='utf-8')
-          blocks = [
-          '''  if (!config->has_use_live_conversion()) {\n    config->set_use_live_conversion(true);\n  }\n''',
-          '''  if (!config->has_use_zenz_live_correction()) {\n    config->set_use_zenz_live_correction(true);\n  }\n''',
-          '''  if (!config->has_use_zenz_live_correction_right_context()) {\n    config->set_use_zenz_live_correction_right_context(true);\n  }\n''',
-          '''  if (!config->has_use_realtime_conversion()) {\n    config->set_use_realtime_conversion(false);\n  }\n''',
-          ]
-          for block in blocks:
-              if block not in s:
-                  raise SystemExit(f'expected product-default block not found in {path}: {block!r}')
-              s = s.replace(block, '', 1)
-
-          marker = '''  ApplyMozkeyProductDefaults(config);\n'''
-          replacement = '''  ApplyMozkeyProductDefaults(config);\n\n  // Live conversion was removed from Mozkey Date.  Clear legacy persisted\n  // values so upgraded profiles cannot reactivate the old automatic-preedit\n  // conversion path.  Suggestion/prediction remains independent.\n  config->set_use_live_conversion(false);\n  config->set_use_zenz_live_correction(false);\n'''
-          if marker not in s:
-              raise SystemExit('NormalizeConfig marker not found')
-          s = s.replace(marker, replacement, 1)
-          p.write_text(s, encoding='utf-8')
-
-          path = 'src/gui/config_dialog/config_dialog.cc'
-          p = Path(path)
-          s = p.read_text(encoding='utf-8')
-          marker = '''  setupUi(this);\n'''
-          replacement = '''  setupUi(this);\n\n  // Live conversion is no longer a product feature.  Keep the generated UI\n  // members temporarily while the protocol/session implementation is removed,\n  // but do not expose controls that can only configure the removed path.\n  for (QWidget *widget : findChildren<QWidget *>()) {\n    const QString name = widget->objectName();\n    if (name.contains(QStringLiteral("liveConversion"), Qt::CaseInsensitive) ||\n        name.contains(QStringLiteral("zenzLiveCorrection"),\n                      Qt::CaseInsensitive) ||\n        name == QStringLiteral("showLiveConversionRubyWindow")) {\n      widget->setVisible(false);\n    }\n  }\n  showCandidateWindowOnInitialConversionCheckBox->setText(\n      tr("Open candidate window on first conversion action"));\n'''
-          if marker not in s:
-              raise SystemExit('setupUi marker not found')
-          s = s.replace(marker, replacement, 1)
-          p.write_text(s, encoding='utf-8')
-
-          path = 'src/protocol/config.proto'
-          p = Path(path)
-          s = p.read_text(encoding='utf-8')
-          old = '''  // Use realtime conversion feature. Mozkey disables this by default in\n  // ConfigHandler because normal live conversion already provides inline\n  // conversion results.\n  optional bool use_realtime_conversion = 102 [default = true];\n'''
-          new = '''  // Use realtime conversion suggestion. This is suggestion/prediction and is\n  // independent from the removed automatic-preedit live conversion feature.\n  optional bool use_realtime_conversion = 102 [default = true];\n'''
+          # The existing Zenz feedback controls are coupled to live conversion.
+          # Hide them until #49 reintroduces Zenz for normal/prediction conversion.
+          path = Path('src/gui/config_dialog/config_dialog.cc')
+          s = path.read_text(encoding='utf-8')
+          old = '''    if (name.contains(QStringLiteral("liveConversion"), Qt::CaseInsensitive) ||\n        name.contains(QStringLiteral("zenzLiveCorrection"),\n                      Qt::CaseInsensitive) ||\n        name == QStringLiteral("showLiveConversionRubyWindow")) {\n'''
+          new = '''    if (name.contains(QStringLiteral("liveConversion"), Qt::CaseInsensitive) ||\n        name.contains(QStringLiteral("zenzLiveCorrection"),\n                      Qt::CaseInsensitive) ||\n        name.contains(QStringLiteral("zenzFeedback"), Qt::CaseInsensitive) ||\n        name == QStringLiteral("showLiveConversionRubyWindow") ||\n        name == QStringLiteral("editZenzFeedbackButton")) {\n'''
           if old not in s:
-              raise SystemExit('realtime conversion comment block not found')
-          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+              raise SystemExit('live UI filter block not found')
+          s = s.replace(old, new, 1)
+          path.write_text(s, encoding='utf-8')
+
+          # Update product-default tests to reflect removal: live conversion and
+          # live Zenz must be OFF while realtime suggestion returns to Mozc default.
+          path = Path('src/config/config_handler_test.cc')
+          s = path.read_text(encoding='utf-8')
+          old = '''void SetMozkeyProductDefaultsForTesting(Config* config) {\n  config->set_use_live_conversion(true);\n  config->set_show_candidate_window_on_initial_conversion(true);\n  config->set_use_direct_commit(true);\n  config->set_direct_commit_key(kExpectedMozkeyDirectCommitKey);\n  config->set_use_zenz_live_correction(true);\n  config->set_use_zenz_feedback_learning(true);\n  config->set_use_zenz_live_correction_right_context(true);\n  config->set_use_realtime_conversion(false);\n}\n'''
+          new = '''void SetMozkeyProductDefaultsForTesting(Config* config) {\n  config->set_use_live_conversion(false);\n  config->set_show_candidate_window_on_initial_conversion(true);\n  config->set_use_direct_commit(true);\n  config->set_direct_commit_key(kExpectedMozkeyDirectCommitKey);\n  config->set_use_zenz_live_correction(false);\n  config->set_use_zenz_feedback_learning(true);\n  config->set_use_realtime_conversion(true);\n}\n'''
+          if old not in s:
+              raise SystemExit('test defaults helper not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('  EXPECT_TRUE(config.use_live_conversion());\n',
+                        '  EXPECT_FALSE(config.use_live_conversion());\n', 1)
+          s = s.replace('  EXPECT_TRUE(config.use_zenz_live_correction());\n',
+                        '  EXPECT_FALSE(config.use_zenz_live_correction());\n', 1)
+          s = s.replace('  EXPECT_TRUE(config.use_zenz_live_correction_right_context());\n', '', 1)
+          s = s.replace('  EXPECT_FALSE(config.use_realtime_conversion());\n',
+                        '  EXPECT_TRUE(config.use_realtime_conversion());\n', 1)
+
+          marker = '''TEST_F(ConfigHandlerTest, SetMetadata) {\n'''
+          regression = '''TEST_F(ConfigHandlerTest, LegacyLiveConversionIsForcedOff) {\n  TempDirectory temp_dir = testing::MakeTempDirectoryOrDie();\n  const std::string config_file =\n      FileUtil::JoinPath(temp_dir.path(), "mozc_config_test_tmp");\n  ASSERT_OK(FileUtil::UnlinkIfExists(config_file));\n  ConfigHandler::SetConfigFileNameForTesting(config_file);\n  ConfigHandler::Reload();\n\n  Config input;\n  input.set_use_live_conversion(true);\n  input.set_use_zenz_live_correction(true);\n  input.set_use_realtime_conversion(true);\n  ConfigHandler::SetConfig(input);\n\n  const Config output = ConfigHandler::GetCopiedConfig();\n  EXPECT_FALSE(output.use_live_conversion());\n  EXPECT_FALSE(output.use_zenz_live_correction());\n  EXPECT_TRUE(output.use_realtime_conversion());\n}\n\n'''
+          if marker not in s:
+              raise SystemExit('SetMetadata marker not found')
+          s = s.replace(marker, regression + marker, 1)
+          path.write_text(s, encoding='utf-8')
           PY
 
           git diff --check
-          git diff -- src/config/config_handler.cc src/gui/config_dialog/config_dialog.cc src/protocol/config.proto
-
           git config user.name 'ChatGPT Codex Connector'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/config/config_handler.cc src/gui/config_dialog/config_dialog.cc src/protocol/config.proto
-          git commit -m 'Remove live conversion from product configuration (#50)'
+          git add src/gui/config_dialog/config_dialog.cc src/config/config_handler_test.cc
+          git commit -m 'Add live conversion removal regression coverage (#50)'
           git push origin HEAD:issue-50-remove-live-conversion
