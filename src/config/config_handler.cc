@@ -184,7 +184,8 @@ void MigrateLegacyZenzSettings(Config* config) {
     if (const auto* field = FindUnknownField(*fields, old_number);
         field != nullptr && field->type() == google::protobuf::UnknownField::TYPE_LENGTH_DELIMITED) {
       if (!has_new_value) {
-        setter(field->length_delimited());
+        const absl::string_view value = field->length_delimited();
+        setter(std::string(value.data(), value.size()));
       }
     }
     fields->DeleteByNumber(old_number);
