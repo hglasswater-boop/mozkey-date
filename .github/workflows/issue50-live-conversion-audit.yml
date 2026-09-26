@@ -1,0 +1,32 @@
+name: Issue 50 live conversion audit
+
+on:
+  push:
+    branches:
+      - issue-50-remove-live-conversion
+    paths:
+      - '.github/workflows/issue50-live-conversion-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            src
+            docs
+            README.md
+            .github
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+      - name: List live conversion references
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo '=== LIVE CONVERSION REFERENCES ==='
+          git grep -n -I -E 'use_live_conversion|live_conversion|LiveConversion|LIVE_CONVERSION|zenz_live|ZenzLive|show_live_conversion|APPLY_ZENZ_LIVE_CORRECTION' -- src README.md docs .github || true
+          echo '=== END REFERENCES ==='
