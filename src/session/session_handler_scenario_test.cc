@@ -64,12 +64,11 @@ void SetLegacyInputDefaultsForScenarioTest() {
   config::ConfigHandler::GetDefaultConfig(&config);
 
   // Scenario files are golden tests for the traditional Mozc session behavior.
-  // Keep live conversion and punctuation/symbol direct commit disabled unless a
+  // Keep automatic conversion and punctuation/symbol direct commit disabled unless a
   // scenario explicitly opts into those features.
-  config.set_use_live_conversion(false);
   config.set_use_direct_commit(false);
   config.set_direct_commit_key(0);
-  config.set_use_zenz_live_correction(false);
+  config.set_use_zenz_conversion(false);
   config.set_use_zenz_feedback_learning(false);
   config.set_use_realtime_conversion(true);
 

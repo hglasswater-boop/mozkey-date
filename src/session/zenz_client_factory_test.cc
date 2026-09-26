@@ -6,7 +6,7 @@
 #include <TargetConditionals.h>
 #endif  // __APPLE__
 
-#include "session/zenz_live_corrector.h"
+#include "session/zenz_conversion_service.h"
 #include "testing/gunit.h"
 
 namespace mozc {

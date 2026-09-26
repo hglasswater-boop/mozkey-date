@@ -36,9 +36,7 @@
 #include "renderer/mac/CandidateController.h"
 #include "renderer/mac/CandidateWindow.h"
 #include "renderer/mac/InfolistWindow.h"
-#include "renderer/mac/RubyWindow.h"
 #include "renderer/mac/mac_view_util.h"
-#include "renderer/renderer_style_handler.h"
 #include "renderer/table_layout.h"
 #include "renderer/window_util.h"
 
@@ -111,21 +109,18 @@ int GetBaseScreenHeight() {
 CandidateController::CandidateController()
     : candidate_window_(new mac::CandidateWindow),
       cascading_window_(new mac::CandidateWindow),
-      infolist_window_(new mac::InfolistWindow),
-      ruby_window_(new mac::RubyWindow) {
+      infolist_window_(new mac::InfolistWindow) {
   candidate_window_->SetWindowLevel(NSPopUpMenuWindowLevel);
   // Cascading window should be over the normal candidate window.
   cascading_window_->SetWindowLevel(NSPopUpMenuWindowLevel + 1);
   // Infolist window should be under the normal candidate window.
   infolist_window_->SetWindowLevel(NSPopUpMenuWindowLevel - 1);
-  ruby_window_->SetWindowLevel(NSPopUpMenuWindowLevel + 2);
 }
 
 CandidateController::~CandidateController() {
   delete candidate_window_;
   delete cascading_window_;
   delete infolist_window_;
-  delete ruby_window_;
 }
 
 bool CandidateController::Activate() {
@@ -151,50 +146,11 @@ bool CandidateController::ExecCommand(const RendererCommand &command) {
     candidate_window_->Hide();
     cascading_window_->Hide();
     infolist_window_->Hide();
-    ruby_window_->Hide();
-    has_candidate_rect_ = false;
     return true;
   }
 
-  if (command_.has_output() && command_.output().live_conversion()) {
-    const bool has_passive_suggestion =
-        command_.output().has_candidate_window() &&
-        command_.output().candidate_window().has_category() &&
-        command_.output().candidate_window().category() ==
-            commands::SUGGESTION &&
-        command_.output().candidate_window().candidate_size() > 0 &&
-        !command_.output().candidate_window().has_focused_index();
 
-    cascading_window_->Hide();
-    infolist_window_->Hide();
 
-    if (has_passive_suggestion) {
-      candidate_window_->SetCandidateWindow(
-          command_.output().candidate_window());
-      AlignWindows();
-      candidate_window_->Show();
-    } else {
-      candidate_window_->Hide();
-      has_candidate_rect_ = false;
-    }
-
-    const mozc::Rect *ruby_avoid_rect =
-        has_passive_suggestion && has_candidate_rect_
-            ? &candidate_rect_
-            : nullptr;
-
-    const RendererStyleHandler::RubyWindowStyle ruby_style =
-        RendererStyleHandler::GetRubyWindowStyle();
-    if (ruby_style.enabled && ruby_window_->Update(command_) &&
-        AlignRubyWindow(ruby_avoid_rect)) {
-      ruby_window_->Show();
-    } else {
-      ruby_window_->Hide();
-    }
-    return true;
-  }
-
-  ruby_window_->Hide();
 
   candidate_window_->SetCandidateWindow(command_.output().candidate_window());
 
@@ -244,7 +200,6 @@ bool CandidateController::ExecCommand(const RendererCommand &command) {
 }
 
 void CandidateController::AlignWindows() {
-  has_candidate_rect_ = false;
 
   // If candidate window is not visible, we do nothing for aligning.
   if (!command_.has_preedit_rectangle()) {
@@ -290,8 +245,6 @@ void CandidateController::AlignWindows() {
   const mozc::Rect candidate_rect = WindowUtil::GetWindowRectForMainWindowFromTargetPointAndPreedit(
       target_point, preedit_rect, candidate_window_->GetWindowSize(), candidate_zero_point,
       display_rect, is_vertical);
-  candidate_rect_ = candidate_rect;
-  has_candidate_rect_ = true;
   candidate_window_->MoveWindow(OriginPointInCocoaCoord(candidate_rect));
 
   // Align infolist window
@@ -321,47 +274,6 @@ void CandidateController::AlignWindows() {
   const mozc::Rect cascading_rect = WindowUtil::GetWindowRectForCascadingWindow(
       focused_rect, cascading_window_->GetWindowSize(), mozc::Point(0, 0), display_rect);
   cascading_window_->MoveWindow(OriginPointInCocoaCoord(cascading_rect));
-}
-
-bool CandidateController::AlignRubyWindow(
-    const mozc::Rect *avoid_rect) {
-  if (!command_.has_preedit_rectangle()) {
-    return false;
-  }
-
-  const mozc::Size ruby_size = ruby_window_->GetWindowSize();
-  if (ruby_size.width <= 0 || ruby_size.height <= 0) {
-    return false;
-  }
-
-  const RendererCommand::Rectangle &anchor =
-      command_.has_ruby_preedit_rectangle()
-          ? command_.ruby_preedit_rectangle()
-          : command_.preedit_rectangle();
-
-  const mozc::Size preedit_size(
-      anchor.right() - anchor.left(),
-      anchor.bottom() - anchor.top());
-
-  const mozc::Rect preedit_rect(
-      mozc::Point(anchor.left(),
-                  anchor.top() - GetBaseScreenHeight()),
-      preedit_size);
-
-  const mozc::Rect display_rect =
-      GetNearestDisplayRect(preedit_rect);
-
-  mozc::Rect ruby_rect;
-  if (!WindowUtil::GetRubyWindowRect(
-          preedit_rect, ruby_size,
-          ruby_window_->GetCompositionGap(),
-          display_rect, avoid_rect, &ruby_rect)) {
-    return false;
-  }
-
-  ruby_window_->MoveWindow(
-      OriginPointInCocoaCoord(ruby_rect));
-  return true;
 }
 
 }  // namespace mozc::renderer::mac

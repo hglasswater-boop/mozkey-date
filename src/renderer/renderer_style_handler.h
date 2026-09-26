@@ -70,21 +70,6 @@ class RendererStyleHandler {
     WindowShadowStyle shadow;
   };
 
-  struct RubyWindowStyle {
-    bool enabled = true;
-    uint32_t background_color = 0xffffff;
-    uint32_t text_color = 0x000000;
-    uint32_t border_color = 0x969696;
-    uint32_t corner_radius = 9;
-    uint32_t size_percent = 100;
-    uint32_t font_weight = 400;
-    uint32_t opacity_percent = 90;
-    uint32_t horizontal_padding = 14;
-    uint32_t vertical_padding = 6;
-    uint32_t composition_gap = 4;
-    WindowShadowStyle shadow;
-  };
-
   // return current Style
   static bool GetRendererStyle(RendererStyle* style);
   // set Style
@@ -97,11 +82,10 @@ class RendererStyleHandler {
   static bool GetRendererStyleForWindowType(RendererStyleType type,
                                             RendererStyle* style);
 
-  // Atomically updates the candidate/suggestion/ruby appearance.
+  // Atomically updates the candidate and suggestion appearance.
   static bool SetRendererWindowStyles(
       const RendererStyle& candidate_style, const RendererStyle& suggestion_style,
-      const RubyWindowStyle& ruby_style, uint32_t candidate_corner_radius,
-      uint32_t suggestion_corner_radius,
+      uint32_t candidate_corner_radius, uint32_t suggestion_corner_radius,
       const CandidateWindowEffectStyle& candidate_effect_style,
       const CandidateWindowEffectStyle& suggestion_effect_style);
 
@@ -112,11 +96,6 @@ class RendererStyleHandler {
   // Returns the candidate-like window opacity and custom shadow settings.
   static CandidateWindowEffectStyle GetCandidateWindowEffectStyle(
       RendererStyleType type);
-
-  // Returns the ruby-window appearance. Colors are 0xRRGGBB. Corner radius is
-  // a logical pixel radius at 100% DPI. Spacing values use the ruby window's
-  // 150% display design baseline and are scaled by size_percent at rendering.
-  static RubyWindowStyle GetRubyWindowStyle();
 
   // Applies candidate window theme options to the given style.
   static void ApplyCandidateWindowTheme(bool use_dark_mode,
@@ -139,7 +118,7 @@ class RendererStyleHandler {
                                        RendererStyle* style);
 
   // Applies candidate/ruby font options to the given style.
-  static void ApplyCandidateRubyFont(const std::string& font_name,
+  static void ApplyCandidateFont(const std::string& font_name,
                                      RendererStyle* style);
 };
 

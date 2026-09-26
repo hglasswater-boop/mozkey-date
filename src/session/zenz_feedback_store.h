@@ -64,7 +64,7 @@ struct ZenzFeedbackEntry {
   std::string reason = "feedback_neutral";
 };
 
-// Persistent local feedback for Zenz live correction.
+// Persistent local feedback for Zenz conversion.
 //
 // Scope is intentionally full-sequence only:
 //   key   = the complete reading submitted to Zenz

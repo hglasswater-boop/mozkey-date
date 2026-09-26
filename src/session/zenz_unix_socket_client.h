@@ -5,7 +5,7 @@
 #include <string>
 
 #include "absl/time/time.h"
-#include "session/zenz_live_corrector.h"
+#include "session/zenz_conversion_service.h"
 
 namespace mozc {
 namespace session {
@@ -32,7 +32,7 @@ class ZenzUnixSocketClient final : public ZenzClient {
   ~ZenzUnixSocketClient() override = default;
 
   bool IsAvailable() const override;
-  ZenzLiveResponse Convert(const ZenzLiveRequest& request) override;
+  ZenzConversionResponse Convert(const ZenzConversionRequest& request) override;
 
  private:
   const std::string socket_path_;

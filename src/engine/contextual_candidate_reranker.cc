@@ -271,7 +271,7 @@ bool IsCounterLikeValue(absl::string_view value) {
 }
 
 bool IsShikaIruPrefixKey(absl::string_view key) {
-  // Ambiguous live-conversion prefix:
+  // Ambiguous incomplete reading prefix:
   //   しかい...
   //
   // This collides heavily with:
@@ -354,7 +354,7 @@ bool IsShikaParticleLikeKey(absl::string_view key) {
 }
 
 bool IsShikaNegativePrefixKey(absl::string_view key) {
-  // Protect live-conversion prefixes of:
+  // Protect incomplete readings of:
   //   しかいない / しかいません
   //   しかない
   //   しかありません

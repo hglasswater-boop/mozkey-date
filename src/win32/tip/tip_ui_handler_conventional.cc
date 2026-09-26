@@ -70,99 +70,6 @@ using IndicatorInfo = ::mozc::commands::RendererCommand_IndicatorInfo;
 using RendererCommand = ::mozc::commands::RendererCommand;
 using ApplicationInfo = ::mozc::commands::RendererCommand::ApplicationInfo;
 
-bool FillRubyPreeditRectangleFromGuiCaret(HWND target_window,
-                                          const RECT& text_rect,
-                                          bool vertical_writing,
-                                          RendererCommand* command) {
-  if (target_window == nullptr || !::IsWindow(target_window) ||
-      vertical_writing || command == nullptr) {
-    return false;
-  }
-
-  const int text_height = text_rect.bottom - text_rect.top;
-  if (text_height <= 0) {
-    return false;
-  }
-
-  DWORD target_process_id = 0;
-  const DWORD target_thread_id =
-      ::GetWindowThreadProcessId(target_window, &target_process_id);
-  if (target_thread_id == 0 ||
-      target_process_id != ::GetCurrentProcessId()) {
-    return false;
-  }
-
-  GUITHREADINFO gui_info = {};
-  gui_info.cbSize = sizeof(gui_info);
-  if (!::GetGUIThreadInfo(target_thread_id, &gui_info) ||
-      gui_info.hwndCaret == nullptr || !::IsWindow(gui_info.hwndCaret)) {
-    return false;
-  }
-
-  DWORD caret_process_id = 0;
-  if (::GetWindowThreadProcessId(gui_info.hwndCaret, &caret_process_id) == 0 ||
-      caret_process_id != target_process_id) {
-    return false;
-  }
-
-  POINT caret_top_left = {gui_info.rcCaret.left, gui_info.rcCaret.top};
-  POINT caret_bottom_right = {gui_info.rcCaret.right,
-                              gui_info.rcCaret.bottom};
-  if (!::ClientToScreen(gui_info.hwndCaret, &caret_top_left) ||
-      !::ClientToScreen(gui_info.hwndCaret, &caret_bottom_right)) {
-    return false;
-  }
-
-  const RECT caret_rect = {caret_top_left.x, caret_top_left.y,
-                           caret_bottom_right.x, caret_bottom_right.y};
-  const int caret_height = caret_rect.bottom - caret_rect.top;
-
-  // Some frameworks expose only a one- or two-pixel caret stroke instead of
-  // the input line box. Such a rectangle must not drive ruby placement.
-  constexpr int kMinimumCaretHeight = 8;
-  if (caret_height < kMinimumCaretHeight) {
-    return false;
-  }
-
-  // Accept only a substantial but plausible reduction. This corrects cases
-  // such as Notepad's anomalous 49px first-line TSF rectangle with a 25px GUI
-  // caret, while preserving the existing geometry for Word, Excel, ordinary
-  // editor lines, and thin Qt carets.
-  constexpr int kMinimumCaretHeightPercent = 40;
-  constexpr int kMaximumCaretHeightPercentForCorrection = 75;
-  constexpr int kMinimumHeightReduction = 4;
-  if (static_cast<int64_t>(caret_height) * 100 <
-          static_cast<int64_t>(text_height) *
-              kMinimumCaretHeightPercent ||
-      static_cast<int64_t>(caret_height) * 100 >
-          static_cast<int64_t>(text_height) *
-              kMaximumCaretHeightPercentForCorrection ||
-      text_height - caret_height < kMinimumHeightReduction) {
-    return false;
-  }
-
-  // The target anomaly contains excess space above the actual line while
-  // sharing its lower edge. Reject unrelated or stale caret rectangles.
-  const int bottom_delta =
-      caret_rect.bottom >= text_rect.bottom
-          ? caret_rect.bottom - text_rect.bottom
-          : text_rect.bottom - caret_rect.bottom;
-  const int bottom_tolerance = text_height > 16 ? text_height / 4 : 4;
-  if (bottom_delta > bottom_tolerance ||
-      caret_rect.top < text_rect.top - bottom_tolerance ||
-      caret_rect.top >= text_rect.bottom) {
-    return false;
-  }
-
-  RendererCommand::Rectangle* preedit_rect =
-      command->mutable_preedit_rectangle();
-  preedit_rect->set_left(text_rect.left);
-  preedit_rect->set_top(caret_rect.top);
-  preedit_rect->set_right(text_rect.right);
-  preedit_rect->set_bottom(caret_rect.bottom);
-  return true;
-}
-
 size_t GetTargetPos(const commands::Output& output) {
   if (!output.has_candidate_window() ||
       !output.candidate_window().has_category()) {
@@ -210,15 +117,6 @@ bool FillVisibility(ITfUIElementMgr* ui_element_manager,
 
   bool suggest_window_visible = false;
   bool candidate_window_visible = false;
-  bool ruby_window_visible = false;
-
-  // Live conversion uses the renderer for the ruby overlay even when there is
-  // no candidate_window. Pending live conversion intentionally clears
-  // candidate_window, so visibility must not depend only on candidate_window.
-  if (output.live_conversion() && output.has_preedit()) {
-    ruby_window_visible = true;
-  }
-
   // Check if suggest window and candidate window are actually visible.
   if (output.has_candidate_window() && output.candidate_window().has_category()) {
     switch (output.candidate_window().category()) {
@@ -235,8 +133,7 @@ bool FillVisibility(ITfUIElementMgr* ui_element_manager,
     }
   }
 
-  if (candidate_window_visible || suggest_window_visible ||
-      ruby_window_visible) {
+  if (candidate_window_visible || suggest_window_visible) {
     command->set_visible(true);
   }
 
@@ -520,11 +417,6 @@ bool FillCharPosition(TipPrivateContext* private_context, ITfContext* context,
   area->set_top(document_rect.top);
   area->set_right(document_rect.right);
   area->set_bottom(document_rect.bottom);
-
-  if (output.live_conversion() && output.has_preedit()) {
-    FillRubyPreeditRectangleFromGuiCaret(target_window, text_rect,
-                                         vertical_writing, command);
-  }
 
   return true;
 }

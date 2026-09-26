@@ -116,7 +116,7 @@ int CreateListeningSocket(const std::string& socket_path) {
   return server_fd;
 }
 
-bool ServeOneRequest(int server_fd, const ZenzLiveRequest& expected_request,
+bool ServeOneRequest(int server_fd, const ZenzConversionRequest& expected_request,
                      const std::string& response_value,
                      const std::string& response_debug) {
   pollfd descriptor = {};
@@ -169,9 +169,9 @@ bool ServeOneRequest(int server_fd, const ZenzLiveRequest& expected_request,
   return ok;
 }
 
-ZenzLiveRequest MakeRequest(uint32_t generation, const std::string& prompt,
+ZenzConversionRequest MakeRequest(uint32_t generation, const std::string& prompt,
                             uint32_t timeout_msec) {
-  ZenzLiveRequest request;
+  ZenzConversionRequest request;
   request.generation = generation;
   request.key = "reading";
   request.prompt = prompt;
@@ -191,7 +191,7 @@ TEST(ZenzUnixSocketClientTest, ExchangesSharedWireProtocolWithoutLaunching) {
       CreateListeningSocket(socket_directory.socket_path());
   ASSERT_GE(server_fd, 0);
 
-  const ZenzLiveRequest request =
+  const ZenzConversionRequest request =
       MakeRequest(37, "zenz prompt payload", 1000);
   const std::string expected_value = "zenz result";
   const std::string expected_debug = "fake_server_ok";
@@ -211,7 +211,7 @@ TEST(ZenzUnixSocketClientTest, ExchangesSharedWireProtocolWithoutLaunching) {
       });
   EXPECT_TRUE(client.IsAvailable());
 
-  const ZenzLiveResponse response = client.Convert(request);
+  const ZenzConversionResponse response = client.Convert(request);
   server.join();
   ::close(server_fd);
 
@@ -231,7 +231,7 @@ TEST(ZenzUnixSocketClientTest, LaunchesScorerAndUsesFreshRequestDeadline) {
 
   // The fake scorer deliberately takes longer to create its socket than the
   // inference timeout. Cold-start readiness must therefore use its own budget.
-  const ZenzLiveRequest request =
+  const ZenzConversionRequest request =
       MakeRequest(41, "cold start prompt", 200);
   const std::string expected_value = "cold start result";
   const std::string expected_debug = "cold_start_ok";
@@ -261,7 +261,7 @@ TEST(ZenzUnixSocketClientTest, LaunchesScorerAndUsesFreshRequestDeadline) {
       },
       absl::Seconds(1));
 
-  const ZenzLiveResponse response = client.Convert(request);
+  const ZenzConversionResponse response = client.Convert(request);
   if (server.joinable()) {
     server.join();
   }
@@ -287,7 +287,7 @@ TEST(ZenzUnixSocketClientTest, ReportsDefinitiveScorerLaunchFailure) {
       },
       absl::Seconds(1));
 
-  const ZenzLiveResponse response =
+  const ZenzConversionResponse response =
       client.Convert(MakeRequest(42, "launch failure prompt", 1000));
 
   EXPECT_EQ(launch_count.load(), 1);
@@ -309,7 +309,7 @@ TEST(ZenzUnixSocketClientTest, TimesOutWhenScorerNeverCreatesSocket) {
       },
       absl::Milliseconds(80));
 
-  const ZenzLiveResponse response =
+  const ZenzConversionResponse response =
       client.Convert(MakeRequest(43, "timeout prompt", 1000));
 
   EXPECT_EQ(launch_count.load(), 1);
@@ -322,9 +322,9 @@ TEST(ZenzUnixSocketClientTest, RejectsInvalidSocketPath) {
   ZenzUnixSocketClient client("");
   EXPECT_FALSE(client.IsAvailable());
 
-  ZenzLiveRequest request;
+  ZenzConversionRequest request;
   request.generation = 9;
-  const ZenzLiveResponse response = client.Convert(request);
+  const ZenzConversionResponse response = client.Convert(request);
   EXPECT_FALSE(response.ok);
   EXPECT_FALSE(response.timeout);
   EXPECT_EQ(response.debug, "invalid_socket_path");
@@ -336,9 +336,9 @@ TEST(ZenzUnixSocketClientTest, IsUnavailableOnWindows) {
   ZenzUnixSocketClient client("unused");
   EXPECT_FALSE(client.IsAvailable());
 
-  ZenzLiveRequest request;
+  ZenzConversionRequest request;
   request.generation = 9;
-  const ZenzLiveResponse response = client.Convert(request);
+  const ZenzConversionResponse response = client.Convert(request);
   EXPECT_FALSE(response.ok);
   EXPECT_EQ(response.debug, "unix_socket_not_supported_on_windows");
 }

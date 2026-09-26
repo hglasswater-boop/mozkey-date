@@ -327,9 +327,9 @@ bool ZenzNamedPipeClient::IsAvailable() const {
 #endif
 }
 
-ZenzLiveResponse ZenzNamedPipeClient::Convert(
-    const ZenzLiveRequest& request) {
-  ZenzLiveResponse response;
+ZenzConversionResponse ZenzNamedPipeClient::Convert(
+    const ZenzConversionRequest& request) {
+  ZenzConversionResponse response;
   response.generation = request.generation;
   response.key = request.key;
 

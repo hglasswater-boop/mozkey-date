@@ -295,9 +295,9 @@ bool ZenzUnixSocketClient::IsAvailable() const {
 #endif
 }
 
-ZenzLiveResponse ZenzUnixSocketClient::Convert(
-    const ZenzLiveRequest& request) {
-  ZenzLiveResponse response;
+ZenzConversionResponse ZenzUnixSocketClient::Convert(
+    const ZenzConversionRequest& request) {
+  ZenzConversionResponse response;
   response.generation = request.generation;
   response.key = request.key;
 

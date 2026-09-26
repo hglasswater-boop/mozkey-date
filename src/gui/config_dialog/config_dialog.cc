@@ -203,7 +203,7 @@ bool FontFamilyExists(const QStringList &families, const QString &family) {
   return families.contains(family, Qt::CaseInsensitive);
 }
 
-void InitializeCandidateRubyFontComboBox(QComboBox *combo_box) {
+void InitializeCandidateFontComboBox(QComboBox *combo_box) {
   if (combo_box == nullptr) {
     return;
   }
@@ -358,24 +358,6 @@ ConfigDialog::ConfigDialog()
 
   suggestionsSizeSpinBox->setRange(1, 9);
 
-  liveConversionDelaySpinBox->setRange(0, 1000);
-  liveConversionDelaySpinBox->setSingleStep(1);
-  liveConversionDelaySpinBox->setSuffix(QString::fromUtf8(" ms"));
-  liveConversionDelaySpinBox->setSpecialValueText(QString::fromUtf8("即時"));
-
-  liveConversionMinKeyLengthSpinBox->setRange(1, 20);
-  liveConversionMinKeyLengthSpinBox->setSingleStep(1);
-  liveConversionMinKeyLengthSpinBox->setSuffix(QString::fromUtf8(" 文字"));
-
-  zenzLiveCorrectionDelaySpinBox->setRange(0, 5000);
-  zenzLiveCorrectionDelaySpinBox->setSingleStep(1);
-  zenzLiveCorrectionDelaySpinBox->setSuffix(QString::fromUtf8(" ms"));
-  zenzLiveCorrectionDelaySpinBox->setSpecialValueText(QString::fromUtf8("即時"));
-
-  zenzLiveCorrectionMinKeyLengthSpinBox->setRange(2, 20);
-  zenzLiveCorrectionMinKeyLengthSpinBox->setSingleStep(1);
-  zenzLiveCorrectionMinKeyLengthSpinBox->setSuffix(QString::fromUtf8(" 文字"));
-
   dateConversionFormatLineEdit->setMaxLength(128);
   dateConversionFormatListWidget->setSelectionMode(
       QAbstractItemView::SingleSelection);
@@ -507,16 +489,18 @@ ConfigDialog::ConfigDialog()
         }
       });
 
-  zenzLiveCorrectionProfileLineEdit->setMaxLength(128);
-  zenzLiveCorrectionTopicLineEdit->setMaxLength(128);
-  zenzLiveCorrectionStyleLineEdit->setMaxLength(128);
-  zenzLiveCorrectionSettingsLineEdit->setMaxLength(128);
+  zenzProfileLineEdit->setMaxLength(128);
+  zenzTopicLineEdit->setMaxLength(128);
+  zenzStyleLineEdit->setMaxLength(128);
+  zenzSettingsLineEdit->setMaxLength(128);
 
-  zenzLiveCorrectionRightContextLengthSpinBox->setRange(0, 128);
-  zenzLiveCorrectionRightContextLengthSpinBox->setSingleStep(1);
-  zenzLiveCorrectionRightContextLengthSpinBox->setSuffix(
-      QString::fromUtf8(" 文字"));
-  zenzLiveCorrectionRightContextLengthSpinBox->setSpecialValueText(
+  zenzLeftContextLengthSpinBox->setRange(0, 128);
+  zenzLeftContextLengthSpinBox->setSingleStep(1);
+  zenzLeftContextLengthSpinBox->setSuffix(QString::fromUtf8(" 文字"));
+  zenzRightContextLengthSpinBox->setRange(0, 128);
+  zenzRightContextLengthSpinBox->setSingleStep(1);
+  zenzRightContextLengthSpinBox->setSuffix(QString::fromUtf8(" 文字"));
+  zenzRightContextLengthSpinBox->setSpecialValueText(
       QString::fromUtf8("使わない"));
 
   zenzFeedbackAutoBlockRejectThresholdSpinBox->setRange(1, 999);
@@ -603,9 +587,8 @@ ConfigDialog::ConfigDialog()
   // Detailed renderer appearance controls are supported by the Windows and
   // macOS desktop renderers.
   useDarkModeCandidateWindow->hide();
-  candidateRubyFontLabel->hide();
-  candidateRubyFontComboBox->hide();
-  showLiveConversionRubyWindow->hide();
+  candidateFontLabel->hide();
+  candidateFontComboBox->hide();
 #endif  // !defined(_WIN32) && !defined(__APPLE__)
 
   // Reset texts explicitly for translations.
@@ -635,12 +618,11 @@ ConfigDialog::ConfigDialog()
                    SLOT(EditRomanTable()));
   QObject::connect(inputModeComboBox, SIGNAL(currentIndexChanged(int)), this,
                    SLOT(SelectInputModeSetting(int)));
-  QObject::connect(liveConversionCheckBox, SIGNAL(stateChanged(int)), this,
-                   SLOT(SelectLiveConversionSetting(int)));
-  QObject::connect(zenzLiveCorrectionCheckBox, SIGNAL(stateChanged(int)), this,
-                   SLOT(SelectZenzLiveCorrectionSetting(int)));
-  QObject::connect(zenzLiveCorrectionRightContextCheckBox,
-                   SIGNAL(stateChanged(int)), this,
+  QObject::connect(useZenzConversionCheckBox, SIGNAL(stateChanged(int)), this,
+                   SLOT(SelectZenzConversionSetting(int)));
+  QObject::connect(useZenzContextCheckBox, SIGNAL(stateChanged(int)), this,
+                   SLOT(SelectZenzContextSetting(int)));
+  QObject::connect(zenzRightContextCheckBox, SIGNAL(stateChanged(int)), this,
                    SLOT(SelectZenzRightContextSetting(int)));
   QObject::connect(zenzFeedbackLearningCheckBox,
                    SIGNAL(stateChanged(int)), this,
@@ -691,7 +673,7 @@ ConfigDialog::ConfigDialog()
   QObject::connect(targetPreeditUnderlineColorCheckBox, SIGNAL(toggled(bool)),
                    targetPreeditUnderlineColorButton, SLOT(setEnabled(bool)));
 
-  InitializeCandidateRubyFontComboBox(candidateRubyFontComboBox);
+  InitializeCandidateFontComboBox(candidateFontComboBox);
 
   // Event handlers to update 'Apply' button state.
   Connect(findChildren<QCheckBox *>(), SIGNAL(stateChanged(int)), this,
@@ -1045,17 +1027,7 @@ namespace {
 
 static constexpr int kPreeditMethodSize = 2;
 
-constexpr uint32_t kDefaultLiveConversionDelayMsec = 228;
-constexpr uint32_t kMaxLiveConversionDelayMsec = 1000;
-constexpr uint32_t kDefaultLiveConversionMinKeyLength = 2;
-constexpr uint32_t kMinLiveConversionMinKeyLength = 1;
-constexpr uint32_t kMaxLiveConversionMinKeyLength = 20;
-constexpr uint32_t kDefaultZenzLiveCorrectionDelayMsec = 1000;
-constexpr uint32_t kMaxZenzLiveCorrectionDelayMsec = 5000;
-constexpr uint32_t kDefaultZenzLiveCorrectionMinKeyLength = 2;
-constexpr uint32_t kMinZenzLiveCorrectionMinKeyLength = 2;
-constexpr uint32_t kMaxZenzLiveCorrectionMinKeyLength = 20;
-constexpr uint32_t kMaxZenzLiveCorrectionRightContextLength = 128;
+constexpr uint32_t kMaxZenzContextLength = 128;
 constexpr uint32_t kDefaultZenzAutoBlockRejectThreshold = 3;
 constexpr uint32_t kMinZenzAutoBlockRejectThreshold = 1;
 constexpr uint32_t kMaxZenzAutoBlockRejectThreshold = 999;
@@ -1138,12 +1110,6 @@ struct CandidateWindowPaletteDefaults {
   uint32_t scrollbar_indicator_color;
 };
 
-struct RubyWindowPaletteDefaults {
-  uint32_t background_color;
-  uint32_t text_color;
-  uint32_t border_color;
-};
-
 constexpr CandidateWindowPaletteDefaults kLightCandidatePalette = {
     0xffffff, 0x000000, 0xd1eaff, 0x7facdd, 0x969696,
     0x777777, 0xf3f4ff, 0x888888, 0x4c4c4c, 0xffffff,
@@ -1154,11 +1120,6 @@ constexpr CandidateWindowPaletteDefaults kDarkCandidatePalette = {
     0x96a0aa, 0x181b20, 0x8b949e, 0xb7c0c9, 0x161a1f,
     0x2a3037, 0x1d2228, 0x4b5766};
 
-constexpr RubyWindowPaletteDefaults kLightRubyPalette = {
-    0xffffff, 0x000000, 0x969696};
-constexpr RubyWindowPaletteDefaults kDarkRubyPalette = {
-    0x181b20, 0xe6edf3, 0x323840};
-
 constexpr const char* kCandidatePaletteButtonNames[] = {
     "BackgroundColorButton", "TextColorButton", "SelectedBackgroundColorButton",
     "SelectedBorderColorButton", "BorderColorButton", "ShortcutTextColorButton",
@@ -1166,9 +1127,6 @@ constexpr const char* kCandidatePaletteButtonNames[] = {
     "FooterTextColorButton", "FooterBackgroundColorButton",
     "FooterBorderColorButton", "ScrollbarBackgroundColorButton",
     "ScrollbarIndicatorColorButton"};
-
-constexpr const char* kRubyPaletteButtonNames[] = {
-    "BackgroundColorButton", "TextColorButton", "BorderColorButton"};
 
 QComboBox* FindComboBox(const QObject* parent, const char* name) {
   return parent->findChild<QComboBox*>(QString::fromLatin1(name));
@@ -1278,29 +1236,6 @@ CandidateWindowPaletteDefaults GetCandidatePaletteButtons(
   return palette;
 }
 
-void SetRubyPaletteButtons(QObject* parent, const QString& prefix,
-                           const RubyWindowPaletteDefaults& palette) {
-  const uint32_t values[] = {palette.background_color, palette.text_color,
-                             palette.border_color};
-  for (size_t i = 0; i < std::size(kRubyPaletteButtonNames); ++i) {
-    SetColorButton(FindButton(parent, prefix + kRubyPaletteButtonNames[i]),
-                   values[i]);
-  }
-}
-
-RubyWindowPaletteDefaults GetRubyPaletteButtons(
-    const QObject* parent, const QString& prefix,
-    const RubyWindowPaletteDefaults& defaults) {
-  RubyWindowPaletteDefaults palette = defaults;
-  uint32_t* values[] = {&palette.background_color, &palette.text_color,
-                        &palette.border_color};
-  for (size_t i = 0; i < std::size(kRubyPaletteButtonNames); ++i) {
-    *values[i] = GetColorButtonRgb(
-        FindButton(parent, prefix + kRubyPaletteButtonNames[i]), *values[i]);
-  }
-  return palette;
-}
-
 void SetCandidatePaletteButtonsFromProto(
     QObject* parent, const QString& prefix,
     const config::Config::CandidateWindowColorPalette& proto) {
@@ -1313,14 +1248,6 @@ void SetCandidatePaletteButtonsFromProto(
        proto.footer_text_color(), proto.footer_background_color(),
        proto.footer_border_color(), proto.scrollbar_background_color(),
        proto.scrollbar_indicator_color()});
-}
-
-void SetRubyPaletteButtonsFromProto(
-    QObject* parent, const QString& prefix,
-    const config::Config::RubyWindowColorPalette& proto) {
-  SetRubyPaletteButtons(parent, prefix,
-                        {proto.background_color(), proto.text_color(),
-                         proto.border_color()});
 }
 
 void SaveCandidatePaletteToProto(
@@ -1341,15 +1268,6 @@ void SaveCandidatePaletteToProto(
   proto->set_footer_border_color(palette.footer_border_color);
   proto->set_scrollbar_background_color(palette.scrollbar_background_color);
   proto->set_scrollbar_indicator_color(palette.scrollbar_indicator_color);
-}
-
-void SaveRubyPaletteToProto(const QObject* parent, const QString& prefix,
-                            config::Config::RubyWindowColorPalette* proto) {
-  const RubyWindowPaletteDefaults palette =
-      GetRubyPaletteButtons(parent, prefix, kLightRubyPalette);
-  proto->set_background_color(palette.background_color);
-  proto->set_text_color(palette.text_color);
-  proto->set_border_color(palette.border_color);
 }
 
 QString ToQString(absl::string_view s) {
@@ -1661,7 +1579,7 @@ void ShowZenzFeedbackManagementDialog(QWidget* parent,
                              "【通常の変換履歴との違い】\n"
                              "Zenz の結果を確定した場合、条件によっては通常の変換履歴にも"
                              "反映されます。また、安全に判断できる場合は、直前の通常 Mozc "
-                             "ライブ変換文節列へ逆投影し、文節列全体を通常変換履歴に近い形で"
+                             "通常 Mozc 変換文節列へ逆投影し、文節列全体を通常変換履歴に近い形で"
                              "反映します。このとき、Zenz が実際に直した文節だけを"
                              "強い選択履歴として扱います。\n\n"
                              "そのため、この画面で Zenz 学習データを削除しても、"
@@ -2593,8 +2511,8 @@ void ConfigDialog::InitializeRendererAppearanceControls() {
 #endif  // !defined(_WIN32) && !defined(__APPLE__)
 
   useDarkModeCandidateWindow->hide();
-  candidateRubyFontLabel->hide();
-  candidateRubyFontComboBox->hide();
+  candidateFontLabel->hide();
+  candidateFontComboBox->hide();
 
   QWidget* group = new QWidget(inputSupportScrollAreaWidgetContents);
   group->setObjectName(QStringLiteral("rendererAppearanceGroupBox"));
@@ -2611,14 +2529,14 @@ void ConfigDialog::InitializeRendererAppearanceControls() {
   QHBoxLayout* section_layout = new QHBoxLayout(section);
   section_layout->setContentsMargins(9, 9, 9, 9);
   QLabel* section_label =
-      new QLabel(tr("Candidate, suggestion, and ruby window appearance"),
+      new QLabel(tr("Candidate and suggestion window appearance"),
                  section);
   QPushButton* reset_button = new QPushButton(tr("Reset"), section);
   reset_button->setObjectName(QStringLiteral("rendererAppearanceResetButton"));
   reset_button->setFixedWidth(64);
   reset_button->setMinimumHeight(24);
   reset_button->setToolTip(tr(
-      "Reset candidate, suggestion, and ruby window appearance to defaults"));
+      "Reset candidate and suggestion window appearance to defaults"));
   QFrame* section_line = new QFrame(section);
   section_line->setFrameShape(QFrame::HLine);
   section_line->setFrameShadow(QFrame::Sunken);
@@ -2641,14 +2559,14 @@ void ConfigDialog::InitializeRendererAppearanceControls() {
   font_layout->setHorizontalSpacing(8);
   font_layout->setVerticalSpacing(0);
   QLabel* font_label =
-      new QLabel(tr("Candidate, suggestion, and ruby font"), group);
+      new QLabel(tr("Candidate and suggestion font"), group);
   font_label->setMinimumHeight(24);
   font_label->setMinimumWidth(220);
-  candidateRubyFontComboBox->setParent(group);
-  candidateRubyFontComboBox->show();
-  candidateRubyFontComboBox->setMinimumHeight(24);
+  candidateFontComboBox->setParent(group);
+  candidateFontComboBox->show();
+  candidateFontComboBox->setMinimumHeight(24);
   font_layout->addWidget(font_label, 0, 0);
-  font_layout->addWidget(candidateRubyFontComboBox, 0, 1);
+  font_layout->addWidget(candidateFontComboBox, 0, 1);
   font_layout->setColumnStretch(1, 1);
   body_layout->addLayout(font_layout);
 
@@ -2680,8 +2598,6 @@ void ConfigDialog::InitializeRendererAppearanceControls() {
                       "candidateWindowFontWeightComboBox");
   add_font_weight_row(1, tr("Suggestion window"),
                       "suggestWindowFontWeightComboBox");
-  add_font_weight_row(2, tr("Ruby window"),
-                      "rubyWindowFontWeightComboBox");
   body_layout->addWidget(font_weight_box);
 
   QWidget* color_grid_widget = new QWidget(group);
@@ -2774,58 +2690,10 @@ void ConfigDialog::InitializeRendererAppearanceControls() {
   add_row(2, tr("Suggestion window"), "suggestWindowColorThemeComboBox", true,
           "suggestWindowSizePercentSpinBox", "suggestWindowCornerRadiusSpinBox",
           "suggestWindowOpacityPercentSpinBox", 6, 100);
-  add_row(3, tr("Ruby window"), "rubyWindowColorThemeComboBox", true,
-          "rubyWindowSizePercentSpinBox", "rubyWindowCornerRadiusSpinBox",
-          "rubyWindowOpacityPercentSpinBox", 9, 90);
-  for (int row = 0; row <= 3; ++row) {
+  for (int row = 0; row <= 2; ++row) {
     grid->setRowMinimumHeight(row, 24);
     grid->setRowStretch(row, 0);
   }
-
-  body_layout->addSpacing(12);
-
-  QGroupBox* ruby_spacing_box =
-      new QGroupBox(tr("Ruby window spacing and gap"), group);
-  ruby_spacing_box->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-  QGridLayout* ruby_spacing_layout = new QGridLayout(ruby_spacing_box);
-  ruby_spacing_layout->setContentsMargins(8, 8, 8, 8);
-  ruby_spacing_layout->setHorizontalSpacing(8);
-  ruby_spacing_layout->setVerticalSpacing(6);
-
-  auto add_ruby_spacing_spin = [&](int row, const QString& label_text,
-                                   const QString& tooltip,
-                                   const char* object_name, int maximum,
-                                   int default_value) {
-    QLabel* label = new QLabel(label_text, ruby_spacing_box);
-    label->setToolTip(tooltip);
-    ruby_spacing_layout->addWidget(label, row, 0);
-
-    QSpinBox* spin = new QSpinBox(ruby_spacing_box);
-    spin->setObjectName(QString::fromLatin1(object_name));
-    spin->setRange(0, maximum);
-    spin->setValue(default_value);
-    spin->setMinimumHeight(24);
-    spin->setMinimumWidth(72);
-    spin->setToolTip(tooltip);
-    ruby_spacing_layout->addWidget(spin, row, 1);
-    QObject::connect(spin, SIGNAL(valueChanged(int)), this,
-                     SLOT(EnableApplyButton()));
-  };
-
-  add_ruby_spacing_spin(
-      0, tr("Horizontal padding"),
-      tr("Space between the ruby text and the left and right window edges."),
-      "rubyWindowHorizontalPaddingSpinBox", 40, 14);
-  add_ruby_spacing_spin(
-      1, tr("Vertical padding"),
-      tr("Space between the ruby text and the top and bottom window edges."),
-      "rubyWindowVerticalPaddingSpinBox", 24, 6);
-  add_ruby_spacing_spin(
-      2, tr("Distance from input text"),
-      tr("Distance between the ruby window and the text being composed."),
-      "rubyWindowCompositionGapSpinBox", 32, 4);
-  ruby_spacing_layout->setColumnStretch(0, 1);
-  body_layout->addWidget(ruby_spacing_box);
 
   body_layout->addSpacing(12);
 
@@ -2934,11 +2802,6 @@ void ConfigDialog::InitializeRendererAppearanceControls() {
                  "suggestWindowShadowOpacityPercentSpinBox",
                  "suggestWindowShadowDistanceSpinBox",
                  "suggestWindowShadowAngleDegreesSpinBox", 5, 10, 6, 45);
-  add_shadow_row(3, tr("Ruby window"),
-                 "rubyWindowShadowSizeSpinBox",
-                 "rubyWindowShadowOpacityPercentSpinBox",
-                 "rubyWindowShadowDistanceSpinBox",
-                 "rubyWindowShadowAngleDegreesSpinBox", 5, 8, 3, 45);
 
   auto add_palette_button = [&](QGridLayout* layout, int row, int col,
                                 const QString& prefix, const char* suffix,
@@ -3013,41 +2876,10 @@ void ConfigDialog::InitializeRendererAppearanceControls() {
     body_layout->addWidget(box);
   };
 
-  auto add_ruby_palette_group = [&]() {
-    const QString prefix = QStringLiteral("rubyWindow");
-    QGroupBox* box = new QGroupBox(tr("Ruby window custom colors"), group);
-    box->setObjectName(prefix + QStringLiteral("PaletteGroupBox"));
-    box->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    QVBoxLayout* box_layout = new QVBoxLayout(box);
-    box_layout->setContentsMargins(8, 8, 8, 8);
-    box_layout->setSpacing(8);
-    QGridLayout* palette_grid = new QGridLayout();
-    palette_grid->setHorizontalSpacing(8);
-    palette_grid->setVerticalSpacing(8);
-    box_layout->addLayout(palette_grid);
-    const QString labels[] = {tr("Background"), tr("Text"), tr("Border")};
-    for (size_t i = 0; i < std::size(kRubyPaletteButtonNames); ++i) {
-      add_palette_button(palette_grid, 0, static_cast<int>(i), prefix,
-                         kRubyPaletteButtonNames[i], labels[i]);
-    }
-    QHBoxLayout* load_layout = new QHBoxLayout();
-    load_layout->setSpacing(6);
-    add_load_button(load_layout, tr("Load light colors"), prefix,
-                    SLOT(LoadRendererLightAppearance()));
-    add_load_button(load_layout, tr("Load dark colors"), prefix,
-                    SLOT(LoadRendererDarkAppearance()));
-    add_load_button(load_layout, tr("Load candidate colors"), prefix,
-                    SLOT(LoadRendererCandidateAppearance()));
-    load_layout->addStretch();
-    box_layout->addLayout(load_layout);
-    body_layout->addWidget(box);
-  };
-
   add_candidate_palette_group(tr("Candidate window custom colors"),
                               QStringLiteral("candidateWindow"), false);
   add_candidate_palette_group(tr("Suggestion window custom colors"),
                               QStringLiteral("suggestWindow"), true);
-  add_ruby_palette_group();
 
   const int insert_index =
       inputSupportContentLayout->indexOf(preeditDisplayColorGroupBox);
@@ -3124,76 +2956,23 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
   // tab3
   SET_CHECKBOX(autoSwitchCompositionMode, auto_switch_composition_mode);
 
-  SET_CHECKBOX(liveConversionCheckBox, use_live_conversion);
   SET_CHECKBOX(showCandidateWindowOnInitialConversionCheckBox,
                show_candidate_window_on_initial_conversion);
-
-  const uint32_t live_conversion_delay_msec =
-      config.has_live_conversion_delay_msec()
-          ? config.live_conversion_delay_msec()
-          : kDefaultLiveConversionDelayMsec;
-  liveConversionDelaySpinBox->setValue(
-      static_cast<int>(
-          std::clamp(live_conversion_delay_msec,
-                     0u,
-                     kMaxLiveConversionDelayMsec)));
-
-  const uint32_t live_conversion_min_key_length =
-      config.has_live_conversion_min_key_length()
-          ? config.live_conversion_min_key_length()
-          : kDefaultLiveConversionMinKeyLength;
-  liveConversionMinKeyLengthSpinBox->setValue(
-      static_cast<int>(
-          std::clamp(live_conversion_min_key_length,
-                     kMinLiveConversionMinKeyLength,
-                     kMaxLiveConversionMinKeyLength)));
-
-  SET_CHECKBOX(showLiveConversionRubyWindow,
-               show_live_conversion_ruby_window);
-
-  SET_CHECKBOX(zenzLiveCorrectionCheckBox, use_zenz_live_correction);
-
-  const uint32_t zenz_live_correction_delay_msec =
-      config.has_zenz_live_correction_delay_msec()
-          ? config.zenz_live_correction_delay_msec()
-          : kDefaultZenzLiveCorrectionDelayMsec;
-  zenzLiveCorrectionDelaySpinBox->setValue(
-      static_cast<int>(
-          std::clamp(zenz_live_correction_delay_msec,
-                     0u,
-                     kMaxZenzLiveCorrectionDelayMsec)));
-
-  const uint32_t zenz_live_correction_min_key_length =
-      config.has_zenz_live_correction_min_key_length()
-          ? config.zenz_live_correction_min_key_length()
-          : kDefaultZenzLiveCorrectionMinKeyLength;
-  zenzLiveCorrectionMinKeyLengthSpinBox->setValue(
-      static_cast<int>(
-          std::clamp(zenz_live_correction_min_key_length,
-                     kMinZenzLiveCorrectionMinKeyLength,
-                     kMaxZenzLiveCorrectionMinKeyLength)));
-
-  zenzLiveCorrectionProfileLineEdit->setText(
-      ToQString(config.zenz_live_correction_profile()));
-  zenzLiveCorrectionTopicLineEdit->setText(
-      ToQString(config.zenz_live_correction_topic()));
-  zenzLiveCorrectionStyleLineEdit->setText(
-      ToQString(config.zenz_live_correction_style()));
-  zenzLiveCorrectionSettingsLineEdit->setText(
-      ToQString(config.zenz_live_correction_settings()));
-
-  SET_CHECKBOX(zenzLiveCorrectionRightContextCheckBox,
-               use_zenz_live_correction_right_context);
-  const uint32_t zenz_live_correction_right_context_length =
-      config.zenz_live_correction_right_context_length();
-  zenzLiveCorrectionRightContextLengthSpinBox->setValue(
-      static_cast<int>(
-          std::clamp(zenz_live_correction_right_context_length,
-                     0u,
-                     kMaxZenzLiveCorrectionRightContextLength)));
-
-  SelectZenzLiveCorrectionSetting(
-      static_cast<int>(zenzLiveCorrectionCheckBox->isChecked()));
+  SET_CHECKBOX(useZenzConversionCheckBox, use_zenz_conversion);
+  SET_CHECKBOX(useZenzContextCheckBox, use_zenz_context);
+  zenzLeftContextLengthSpinBox->setValue(static_cast<int>(std::clamp(
+      config.zenz_context_left_length(), 0u, kMaxZenzContextLength)));
+  zenzProfileLineEdit->setText(ToQString(config.zenz_profile()));
+  zenzTopicLineEdit->setText(ToQString(config.zenz_topic()));
+  zenzStyleLineEdit->setText(ToQString(config.zenz_style()));
+  zenzSettingsLineEdit->setText(ToQString(config.zenz_settings()));
+  SET_CHECKBOX(zenzRightContextCheckBox, use_zenz_right_context);
+  zenzRightContextLengthSpinBox->setValue(static_cast<int>(std::clamp(
+      config.zenz_context_right_length(), 0u, kMaxZenzContextLength)));
+  SelectZenzConversionSetting(
+      static_cast<int>(useZenzConversionCheckBox->isChecked()));
+  SelectZenzContextSetting(
+      static_cast<int>(useZenzContextCheckBox->isChecked()));
 
   SET_CHECKBOX(zenzFeedbackLearningCheckBox, use_zenz_feedback_learning);
 
@@ -3265,8 +3044,8 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
   ConvertRendererAppearanceFromProto(config);
 
   SetComboBoxCurrentFontNameOrAdd(
-      candidateRubyFontComboBox,
-      QString::fromUtf8(config.candidate_ruby_font_name().c_str()));
+      candidateFontComboBox,
+      QString::fromUtf8(config.candidate_font_name().c_str()));
 
   SET_CHECKBOX(inputPreeditTextColorCheckBox, use_custom_preedit_text_color);
   SetColorButton(inputPreeditTextColorButton, config.preedit_text_color());
@@ -3399,35 +3178,19 @@ void ConfigDialog::ConvertToProto(config::Config *config) const {
   // tab3
   GET_CHECKBOX(autoSwitchCompositionMode, auto_switch_composition_mode);
 
-  GET_CHECKBOX(liveConversionCheckBox, use_live_conversion);
   GET_CHECKBOX(showCandidateWindowOnInitialConversionCheckBox,
                show_candidate_window_on_initial_conversion);
-  config->set_live_conversion_delay_msec(
-      static_cast<uint32_t>(liveConversionDelaySpinBox->value()));
-  config->set_live_conversion_min_key_length(
-      static_cast<uint32_t>(liveConversionMinKeyLengthSpinBox->value()));
-  GET_CHECKBOX(showLiveConversionRubyWindow,
-               show_live_conversion_ruby_window);
-
-  GET_CHECKBOX(zenzLiveCorrectionCheckBox, use_zenz_live_correction);
-  config->set_zenz_live_correction_delay_msec(
-      static_cast<uint32_t>(zenzLiveCorrectionDelaySpinBox->value()));
-  config->set_zenz_live_correction_min_key_length(
-      static_cast<uint32_t>(
-          zenzLiveCorrectionMinKeyLengthSpinBox->value()));
-  config->set_zenz_live_correction_profile(
-      zenzLiveCorrectionProfileLineEdit->text().toUtf8().constData());
-  config->set_zenz_live_correction_topic(
-      zenzLiveCorrectionTopicLineEdit->text().toUtf8().constData());
-  config->set_zenz_live_correction_style(
-      zenzLiveCorrectionStyleLineEdit->text().toUtf8().constData());
-  config->set_zenz_live_correction_settings(
-      zenzLiveCorrectionSettingsLineEdit->text().toUtf8().constData());
-  GET_CHECKBOX(zenzLiveCorrectionRightContextCheckBox,
-               use_zenz_live_correction_right_context);
-  config->set_zenz_live_correction_right_context_length(
-      static_cast<uint32_t>(
-          zenzLiveCorrectionRightContextLengthSpinBox->value()));
+  GET_CHECKBOX(useZenzConversionCheckBox, use_zenz_conversion);
+  GET_CHECKBOX(useZenzContextCheckBox, use_zenz_context);
+  config->set_zenz_context_left_length(
+      static_cast<uint32_t>(zenzLeftContextLengthSpinBox->value()));
+  config->set_zenz_profile(zenzProfileLineEdit->text().toUtf8().constData());
+  config->set_zenz_topic(zenzTopicLineEdit->text().toUtf8().constData());
+  config->set_zenz_style(zenzStyleLineEdit->text().toUtf8().constData());
+  config->set_zenz_settings(zenzSettingsLineEdit->text().toUtf8().constData());
+  GET_CHECKBOX(zenzRightContextCheckBox, use_zenz_right_context);
+  config->set_zenz_context_right_length(
+      static_cast<uint32_t>(zenzRightContextLengthSpinBox->value()));
 
   GET_CHECKBOX(zenzFeedbackLearningCheckBox, use_zenz_feedback_learning);
   GET_CHECKBOX(zenzFeedbackAutoBlockCheckBox,
@@ -3454,11 +3217,11 @@ void ConfigDialog::ConvertToProto(config::Config *config) const {
   ConvertRendererAppearanceToProto(config);
 
   const QString font_name =
-      candidateRubyFontComboBox->currentData().toString().trimmed();
+      candidateFontComboBox->currentData().toString().trimmed();
   if (!font_name.isEmpty()) {
-    config->set_candidate_ruby_font_name(font_name.toUtf8().constData());
+    config->set_candidate_font_name(font_name.toUtf8().constData());
   } else {
-    config->clear_candidate_ruby_font_name();
+    config->clear_candidate_font_name();
   }
 
   GET_CHECKBOX(inputPreeditTextColorCheckBox,
@@ -3599,8 +3362,6 @@ void ConfigDialog::ConvertRendererAppearanceFromProto(
                       candidate_color_theme);
   SetComboCurrentData(FindComboBox(this, "suggestWindowColorThemeComboBox"),
                       static_cast<int>(config.suggest_window_color_theme()));
-  SetComboCurrentData(FindComboBox(this, "rubyWindowColorThemeComboBox"),
-                      static_cast<int>(config.ruby_window_color_theme()));
 
   SetCandidatePaletteButtonsFromProto(
       this, QStringLiteral("candidateWindow"),
@@ -3608,8 +3369,6 @@ void ConfigDialog::ConvertRendererAppearanceFromProto(
   SetCandidatePaletteButtonsFromProto(
       this, QStringLiteral("suggestWindow"),
       config.suggest_window_custom_color_palette());
-  SetRubyPaletteButtonsFromProto(this, QStringLiteral("rubyWindow"),
-                                 config.ruby_window_custom_color_palette());
 
   if (QSpinBox* spin = FindSpinBox(this, "candidateWindowSizePercentSpinBox")) {
     spin->setValue(static_cast<int>(
@@ -3623,12 +3382,6 @@ void ConfigDialog::ConvertRendererAppearanceFromProto(
             ? config.suggest_window_size_percent()
             : 100));
   }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowSizePercentSpinBox")) {
-    spin->setValue(static_cast<int>(
-        config.has_ruby_window_size_percent()
-            ? config.ruby_window_size_percent()
-            : 100));
-  }
 
   SetComboCurrentData(
       FindComboBox(this, "candidateWindowFontWeightComboBox"),
@@ -3636,9 +3389,6 @@ void ConfigDialog::ConvertRendererAppearanceFromProto(
   SetComboCurrentData(
       FindComboBox(this, "suggestWindowFontWeightComboBox"),
       NormalizeRendererFontWeight(config.suggest_window_font_weight()));
-  SetComboCurrentData(
-      FindComboBox(this, "rubyWindowFontWeightComboBox"),
-      NormalizeRendererFontWeight(config.ruby_window_font_weight()));
 
   if (QSpinBox* spin = FindSpinBox(this, "candidateWindowCornerRadiusSpinBox")) {
     spin->setValue(static_cast<int>(config.candidate_window_custom_corner_radius()));
@@ -3646,29 +3396,12 @@ void ConfigDialog::ConvertRendererAppearanceFromProto(
   if (QSpinBox* spin = FindSpinBox(this, "suggestWindowCornerRadiusSpinBox")) {
     spin->setValue(static_cast<int>(config.suggest_window_custom_corner_radius()));
   }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowCornerRadiusSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_custom_corner_radius()));
-  }
 
   if (QSpinBox* spin = FindSpinBox(this, "candidateWindowOpacityPercentSpinBox")) {
     spin->setValue(static_cast<int>(config.candidate_window_opacity_percent()));
   }
   if (QSpinBox* spin = FindSpinBox(this, "suggestWindowOpacityPercentSpinBox")) {
     spin->setValue(static_cast<int>(config.suggest_window_opacity_percent()));
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowOpacityPercentSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_opacity_percent()));
-  }
-  if (QSpinBox* spin =
-          FindSpinBox(this, "rubyWindowHorizontalPaddingSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_horizontal_padding()));
-  }
-  if (QSpinBox* spin =
-          FindSpinBox(this, "rubyWindowVerticalPaddingSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_vertical_padding()));
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowCompositionGapSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_composition_gap()));
   }
 
   if (QSpinBox* spin = FindSpinBox(this, "candidateWindowShadowSizeSpinBox")) {
@@ -3694,18 +3427,6 @@ void ConfigDialog::ConvertRendererAppearanceFromProto(
   }
   if (QSpinBox* spin = FindSpinBox(this, "suggestWindowShadowDistanceSpinBox")) {
     spin->setValue(static_cast<int>(config.suggest_window_shadow_distance()));
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowSizeSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_shadow_size()));
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowOpacityPercentSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_shadow_opacity_percent()));
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowAngleDegreesSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_shadow_angle_degrees() % 360));
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowDistanceSpinBox")) {
-    spin->setValue(static_cast<int>(config.ruby_window_shadow_distance()));
   }
 
   if (useDarkModeCandidateWindow != nullptr) {
@@ -3742,19 +3463,11 @@ void ConfigDialog::ConvertRendererAppearanceToProto(
               FindComboBox(this, "suggestWindowColorThemeComboBox"),
               static_cast<int>(
                   config::Config::RENDERER_WINDOW_COLOR_FOLLOW_CANDIDATE))));
-  config->set_ruby_window_color_theme(
-      static_cast<config::Config::RendererWindowColorTheme>(
-          GetComboCurrentData(
-              FindComboBox(this, "rubyWindowColorThemeComboBox"),
-              static_cast<int>(
-                  config::Config::RENDERER_WINDOW_COLOR_FOLLOW_CANDIDATE))));
 
   SaveCandidatePaletteToProto(this, QStringLiteral("candidateWindow"),
                               config->mutable_candidate_window_custom_color_palette());
   SaveCandidatePaletteToProto(this, QStringLiteral("suggestWindow"),
                               config->mutable_suggest_window_custom_color_palette());
-  SaveRubyPaletteToProto(this, QStringLiteral("rubyWindow"),
-                         config->mutable_ruby_window_custom_color_palette());
 
   if (const QSpinBox* spin = FindSpinBox(this, "candidateWindowSizePercentSpinBox")) {
     config->set_candidate_window_size_percent(
@@ -3762,10 +3475,6 @@ void ConfigDialog::ConvertRendererAppearanceToProto(
   }
   if (const QSpinBox* spin = FindSpinBox(this, "suggestWindowSizePercentSpinBox")) {
     config->set_suggest_window_size_percent(
-        static_cast<uint32_t>(spin->value()));
-  }
-  if (const QSpinBox* spin = FindSpinBox(this, "rubyWindowSizePercentSpinBox")) {
-    config->set_ruby_window_size_percent(
         static_cast<uint32_t>(spin->value()));
   }
 
@@ -3777,9 +3486,6 @@ void ConfigDialog::ConvertRendererAppearanceToProto(
       GetComboCurrentData(FindComboBox(this,
                                        "suggestWindowFontWeightComboBox"),
                           kDefaultRendererFontWeight)));
-  config->set_ruby_window_font_weight(static_cast<uint32_t>(
-      GetComboCurrentData(FindComboBox(this, "rubyWindowFontWeightComboBox"),
-                          kDefaultRendererFontWeight)));
 
   if (const QSpinBox* spin = FindSpinBox(this, "candidateWindowCornerRadiusSpinBox")) {
     config->set_candidate_window_custom_corner_radius(
@@ -3789,10 +3495,6 @@ void ConfigDialog::ConvertRendererAppearanceToProto(
     config->set_suggest_window_custom_corner_radius(
         static_cast<uint32_t>(spin->value()));
   }
-  if (const QSpinBox* spin = FindSpinBox(this, "rubyWindowCornerRadiusSpinBox")) {
-    config->set_ruby_window_custom_corner_radius(
-        static_cast<uint32_t>(spin->value()));
-  }
 
   if (const QSpinBox* spin = FindSpinBox(this, "candidateWindowOpacityPercentSpinBox")) {
     config->set_candidate_window_opacity_percent(
@@ -3800,25 +3502,6 @@ void ConfigDialog::ConvertRendererAppearanceToProto(
   }
   if (const QSpinBox* spin = FindSpinBox(this, "suggestWindowOpacityPercentSpinBox")) {
     config->set_suggest_window_opacity_percent(
-        static_cast<uint32_t>(spin->value()));
-  }
-  if (const QSpinBox* spin = FindSpinBox(this, "rubyWindowOpacityPercentSpinBox")) {
-    config->set_ruby_window_opacity_percent(
-        static_cast<uint32_t>(spin->value()));
-  }
-  if (const QSpinBox* spin =
-          FindSpinBox(this, "rubyWindowHorizontalPaddingSpinBox")) {
-    config->set_ruby_window_horizontal_padding(
-        static_cast<uint32_t>(spin->value()));
-  }
-  if (const QSpinBox* spin =
-          FindSpinBox(this, "rubyWindowVerticalPaddingSpinBox")) {
-    config->set_ruby_window_vertical_padding(
-        static_cast<uint32_t>(spin->value()));
-  }
-  if (const QSpinBox* spin =
-          FindSpinBox(this, "rubyWindowCompositionGapSpinBox")) {
-    config->set_ruby_window_composition_gap(
         static_cast<uint32_t>(spin->value()));
   }
 
@@ -3854,22 +3537,6 @@ void ConfigDialog::ConvertRendererAppearanceToProto(
     config->set_suggest_window_shadow_distance(
         static_cast<uint32_t>(spin->value()));
   }
-  if (const QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowSizeSpinBox")) {
-    config->set_ruby_window_shadow_size(
-        static_cast<uint32_t>(spin->value()));
-  }
-  if (const QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowOpacityPercentSpinBox")) {
-    config->set_ruby_window_shadow_opacity_percent(
-        static_cast<uint32_t>(spin->value()));
-  }
-  if (const QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowAngleDegreesSpinBox")) {
-    config->set_ruby_window_shadow_angle_degrees(
-        static_cast<uint32_t>(spin->value()) % 360u);
-  }
-  if (const QSpinBox* spin = FindSpinBox(this, "rubyWindowShadowDistanceSpinBox")) {
-    config->set_ruby_window_shadow_distance(
-        static_cast<uint32_t>(spin->value()));
-  }
 }
 
 void ConfigDialog::ResetRendererAppearanceControls() {
@@ -3879,15 +3546,11 @@ void ConfigDialog::ResetRendererAppearanceControls() {
   SetComboCurrentData(FindComboBox(this, "suggestWindowColorThemeComboBox"),
                       static_cast<int>(config::Config::
                                            RENDERER_WINDOW_COLOR_FOLLOW_CANDIDATE));
-  SetComboCurrentData(FindComboBox(this, "rubyWindowColorThemeComboBox"),
-                      static_cast<int>(config::Config::
-                                           RENDERER_WINDOW_COLOR_FOLLOW_CANDIDATE));
 
   SetCandidatePaletteButtons(this, QStringLiteral("candidateWindow"),
                              kLightCandidatePalette);
   SetCandidatePaletteButtons(this, QStringLiteral("suggestWindow"),
                              kLightCandidatePalette);
-  SetRubyPaletteButtons(this, QStringLiteral("rubyWindow"), kLightRubyPalette);
 
   if (QSpinBox* spin = FindSpinBox(this, "candidateWindowSizePercentSpinBox")) {
     spin->setValue(100);
@@ -3895,15 +3558,10 @@ void ConfigDialog::ResetRendererAppearanceControls() {
   if (QSpinBox* spin = FindSpinBox(this, "suggestWindowSizePercentSpinBox")) {
     spin->setValue(100);
   }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowSizePercentSpinBox")) {
-    spin->setValue(100);
-  }
 
   SetComboCurrentData(FindComboBox(this, "candidateWindowFontWeightComboBox"),
                       kDefaultRendererFontWeight);
   SetComboCurrentData(FindComboBox(this, "suggestWindowFontWeightComboBox"),
-                      kDefaultRendererFontWeight);
-  SetComboCurrentData(FindComboBox(this, "rubyWindowFontWeightComboBox"),
                       kDefaultRendererFontWeight);
 
   if (QSpinBox* spin = FindSpinBox(this, "candidateWindowCornerRadiusSpinBox")) {
@@ -3912,29 +3570,12 @@ void ConfigDialog::ResetRendererAppearanceControls() {
   if (QSpinBox* spin = FindSpinBox(this, "suggestWindowCornerRadiusSpinBox")) {
     spin->setValue(6);
   }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowCornerRadiusSpinBox")) {
-    spin->setValue(9);
-  }
 
   if (QSpinBox* spin = FindSpinBox(this, "candidateWindowOpacityPercentSpinBox")) {
     spin->setValue(100);
   }
   if (QSpinBox* spin = FindSpinBox(this, "suggestWindowOpacityPercentSpinBox")) {
     spin->setValue(100);
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowOpacityPercentSpinBox")) {
-    spin->setValue(90);
-  }
-  if (QSpinBox* spin =
-          FindSpinBox(this, "rubyWindowHorizontalPaddingSpinBox")) {
-    spin->setValue(14);
-  }
-  if (QSpinBox* spin =
-          FindSpinBox(this, "rubyWindowVerticalPaddingSpinBox")) {
-    spin->setValue(6);
-  }
-  if (QSpinBox* spin = FindSpinBox(this, "rubyWindowCompositionGapSpinBox")) {
-    spin->setValue(4);
   }
 
   struct ShadowDefault {
@@ -3956,10 +3597,6 @@ void ConfigDialog::ResetRendererAppearanceControls() {
        "suggestWindowShadowOpacityPercentSpinBox",
        "suggestWindowShadowAngleDegreesSpinBox",
        "suggestWindowShadowDistanceSpinBox", 5, 10, 45, 6},
-      {"rubyWindowShadowSizeSpinBox",
-       "rubyWindowShadowOpacityPercentSpinBox",
-       "rubyWindowShadowAngleDegreesSpinBox",
-       "rubyWindowShadowDistanceSpinBox", 5, 8, 45, 3},
   };
   for (const ShadowDefault& shadow_default : shadow_defaults) {
     if (QSpinBox* spin = FindSpinBox(this, shadow_default.size_name)) {
@@ -3976,7 +3613,7 @@ void ConfigDialog::ResetRendererAppearanceControls() {
     }
   }
 
-  SetComboBoxCurrentFontNameOrAdd(candidateRubyFontComboBox, QString());
+  SetComboBoxCurrentFontNameOrAdd(candidateFontComboBox, QString());
   if (useDarkModeCandidateWindow != nullptr) {
     useDarkModeCandidateWindow->setChecked(false);
   }
@@ -4036,11 +3673,7 @@ void ConfigDialog::LoadRendererLightAppearance() {
     return;
   }
   const QString target = button->property("target").toString();
-  if (target == QStringLiteral("rubyWindow")) {
-    SetRubyPaletteButtons(this, target, kLightRubyPalette);
-  } else {
-    SetCandidatePaletteButtons(this, target, kLightCandidatePalette);
-  }
+  SetCandidatePaletteButtons(this, target, kLightCandidatePalette);
   EnableApplyButton();
 }
 
@@ -4050,11 +3683,7 @@ void ConfigDialog::LoadRendererDarkAppearance() {
     return;
   }
   const QString target = button->property("target").toString();
-  if (target == QStringLiteral("rubyWindow")) {
-    SetRubyPaletteButtons(this, target, kDarkRubyPalette);
-  } else {
-    SetCandidatePaletteButtons(this, target, kDarkCandidatePalette);
-  }
+  SetCandidatePaletteButtons(this, target, kDarkCandidatePalette);
   EnableApplyButton();
 }
 
@@ -4067,14 +3696,7 @@ void ConfigDialog::LoadRendererCandidateAppearance() {
   const CandidateWindowPaletteDefaults candidate_palette =
       GetCandidatePaletteButtons(this, QStringLiteral("candidateWindow"),
                                  kLightCandidatePalette);
-  if (target == QStringLiteral("rubyWindow")) {
-    SetRubyPaletteButtons(
-        this, target,
-        {candidate_palette.background_color, candidate_palette.text_color,
-         candidate_palette.border_color});
-  } else {
-    SetCandidatePaletteButtons(this, target, candidate_palette);
-  }
+  SetCandidatePaletteButtons(this, target, candidate_palette);
   EnableApplyButton();
 }
 
@@ -4094,10 +3716,6 @@ void ConfigDialog::UpdateRendererAppearanceControls() {
       QStringLiteral("suggestWindow"),
       GetComboCurrentData(FindComboBox(this, "suggestWindowColorThemeComboBox"),
                           custom_color) == custom_color);
-  enable_candidate_palette(
-      QStringLiteral("rubyWindow"),
-      GetComboCurrentData(FindComboBox(this, "rubyWindowColorThemeComboBox"),
-                          custom_color) == custom_color);
 
   auto update_shadow_angle_enabled = [&](const char* distance_name,
                                          const char* angle_name) {
@@ -4112,8 +3730,6 @@ void ConfigDialog::UpdateRendererAppearanceControls() {
                               "candidateWindowShadowAngleDegreesSpinBox");
   update_shadow_angle_enabled("suggestWindowShadowDistanceSpinBox",
                               "suggestWindowShadowAngleDegreesSpinBox");
-  update_shadow_angle_enabled("rubyWindowShadowDistanceSpinBox",
-                              "rubyWindowShadowAngleDegreesSpinBox");
 }
 
 void ConfigDialog::SelectPreeditColor() {
@@ -4258,51 +3874,40 @@ void ConfigDialog::SelectInputModeSetting(int index) {
   editRomanTableButton->setEnabled((index == 0));
 }
 
-void ConfigDialog::SelectLiveConversionSetting(int state) {
+void ConfigDialog::SelectZenzConversionSetting(int state) {
   const bool enabled = static_cast<bool>(state);
-
-  liveConversionDelayLabel->setEnabled(enabled);
-  liveConversionDelaySpinBox->setEnabled(enabled);
-  liveConversionMinKeyLengthLabel->setEnabled(enabled);
-  liveConversionMinKeyLengthSpinBox->setEnabled(enabled);
-  showLiveConversionRubyWindow->setEnabled(enabled);
-  showCandidateWindowOnInitialConversionCheckBox->setEnabled(!enabled);
-
-  zenzLiveCorrectionCheckBox->setEnabled(enabled);
-  SelectZenzLiveCorrectionSetting(
-      enabled ? static_cast<int>(zenzLiveCorrectionCheckBox->isChecked()) : 0);
+  useZenzContextCheckBox->setEnabled(enabled);
+  zenzProfileLabel->setEnabled(enabled);
+  zenzProfileLineEdit->setEnabled(enabled);
+  zenzTopicLabel->setEnabled(enabled);
+  zenzTopicLineEdit->setEnabled(enabled);
+  zenzStyleLabel->setEnabled(enabled);
+  zenzStyleLineEdit->setEnabled(enabled);
+  zenzSettingsLabel->setEnabled(enabled);
+  zenzSettingsLineEdit->setEnabled(enabled);
+  zenzFeedbackLearningCheckBox->setEnabled(enabled);
+  zenzFeedbackAutoBlockCheckBox->setEnabled(
+      enabled && zenzFeedbackLearningCheckBox->isChecked());
+  SelectZenzContextSetting(
+      enabled ? static_cast<int>(useZenzContextCheckBox->isChecked()) : 0);
+  SelectZenzFeedbackLearningSetting(
+      enabled ? static_cast<int>(zenzFeedbackLearningCheckBox->isChecked())
+              : 0);
 }
 
-void ConfigDialog::SelectZenzLiveCorrectionSetting(int state) {
-  const bool enabled =
-      liveConversionCheckBox->isChecked() && static_cast<bool>(state);
-
-  zenzLiveCorrectionDelayLabel->setEnabled(enabled);
-  zenzLiveCorrectionDelaySpinBox->setEnabled(enabled);
-  zenzLiveCorrectionMinKeyLengthLabel->setEnabled(enabled);
-  zenzLiveCorrectionMinKeyLengthSpinBox->setEnabled(enabled);
-  zenzLiveCorrectionProfileLabel->setEnabled(enabled);
-  zenzLiveCorrectionProfileLineEdit->setEnabled(enabled);
-  zenzLiveCorrectionTopicLabel->setEnabled(enabled);
-  zenzLiveCorrectionTopicLineEdit->setEnabled(enabled);
-  zenzLiveCorrectionStyleLabel->setEnabled(enabled);
-  zenzLiveCorrectionStyleLineEdit->setEnabled(enabled);
-  zenzLiveCorrectionSettingsLabel->setEnabled(enabled);
-  zenzLiveCorrectionSettingsLineEdit->setEnabled(enabled);
-  zenzLiveCorrectionRightContextCheckBox->setEnabled(enabled);
+void ConfigDialog::SelectZenzContextSetting(int state) {
+  const bool enabled = useZenzConversionCheckBox->isChecked() &&
+                       static_cast<bool>(state);
+  zenzLeftContextLengthLabel->setEnabled(enabled);
+  zenzLeftContextLengthSpinBox->setEnabled(enabled);
+  zenzRightContextCheckBox->setEnabled(enabled);
   SelectZenzRightContextSetting(
-      enabled ? static_cast<int>(
-                    zenzLiveCorrectionRightContextCheckBox->isChecked())
-              : 0);
-  zenzFeedbackLearningCheckBox->setEnabled(enabled);
-  SelectZenzFeedbackLearningSetting(
-      enabled ? static_cast<int>(zenzFeedbackLearningCheckBox->isChecked()) : 0);
+      enabled ? static_cast<int>(zenzRightContextCheckBox->isChecked()) : 0);
 }
 
 void ConfigDialog::SelectZenzFeedbackLearningSetting(int state) {
   const bool enabled =
-      liveConversionCheckBox->isChecked() &&
-      zenzLiveCorrectionCheckBox->isChecked() &&
+      useZenzConversionCheckBox->isChecked() &&
       static_cast<bool>(state);
 
   zenzFeedbackAutoBlockCheckBox->setEnabled(enabled);
@@ -4314,12 +3919,12 @@ void ConfigDialog::SelectZenzFeedbackLearningSetting(int state) {
 }
 
 void ConfigDialog::SelectZenzRightContextSetting(int state) {
-  const bool enabled = liveConversionCheckBox->isChecked() &&
-                       zenzLiveCorrectionCheckBox->isChecked() &&
+  const bool enabled = useZenzConversionCheckBox->isChecked() &&
+                       useZenzContextCheckBox->isChecked() &&
                        static_cast<bool>(state);
 
-  zenzLiveCorrectionRightContextLengthLabel->setEnabled(enabled);
-  zenzLiveCorrectionRightContextLengthSpinBox->setEnabled(enabled);
+  zenzRightContextLengthLabel->setEnabled(enabled);
+  zenzRightContextLengthSpinBox->setEnabled(enabled);
 }
 
 void ConfigDialog::SelectAutoConversionSetting(int state) {
@@ -4464,8 +4069,10 @@ void ConfigDialog::RestorePreviousDefaultImeSetting() {
 
 void ConfigDialog::UpdateDependentControls() {
   SelectInputModeSetting(inputModeComboBox->currentIndex());
-  SelectLiveConversionSetting(
-      static_cast<int>(liveConversionCheckBox->isChecked()));
+  SelectZenzConversionSetting(
+      static_cast<int>(useZenzConversionCheckBox->isChecked()));
+  SelectZenzContextSetting(
+      static_cast<int>(useZenzContextCheckBox->isChecked()));
   SelectAutoConversionSetting(static_cast<int>(useAutoConversion->isChecked()));
   SelectDirectCommitSetting(static_cast<int>(useDirectCommit->isChecked()));
   SelectSuggestionSetting(

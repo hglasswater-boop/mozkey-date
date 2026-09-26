@@ -38,8 +38,8 @@
 
 namespace mozc::session {
 
-// A surface that normal Mozc live conversion has already selected from a
-// user-dictionary candidate.  Zenz live correction is allowed to improve the
+// A surface that normal Mozc conversion has already selected from a
+// user-dictionary candidate.  Zenz conversion is allowed to improve the
 // surrounding sentence, but must not silently destroy these surfaces.
 struct ProtectedConversionSpan {
   enum class Tier {
@@ -47,7 +47,7 @@ struct ProtectedConversionSpan {
     // where the exact spelling is part of the user's intent.
     kIdentityCritical,
 
-    // Other user-dictionary surfaces selected by normal Mozc live conversion.
+    // Other user-dictionary surfaces selected by normal Mozc conversion.
     // They are protected from silent overwrite.  They are not eligible for
     // reading-derived kana replacement, but boundary/attachment repair may be
     // applied when it is locally safe.
@@ -62,7 +62,7 @@ struct ProtectedConversionSpan {
   // reading-derived kana spelling can be found unambiguously in the Zenz output.
   bool repairable = false;
 
-  // Number of occurrences of this surface in the normal Mozc live-conversion
+  // Number of occurrences of this surface in the normal Mozc conversion
   // value.  Zenz adoption must preserve at least this many occurrences, or
   // repair the missing occurrence when it is safe.
   size_t required_occurrences = 1;

@@ -158,7 +158,7 @@ class EngineConverterInterface {
   // Learns an externally committed multi-segment conversion result without
   // changing the current session-visible conversion state.  This is used when
   // an accepted Zenz correction can be safely projected onto Mozc
-  // live-conversion phrase boundaries.
+  // normal conversion phrase boundaries.
   [[nodiscard]]
   virtual bool LearnExternalConversionSegments(
       absl::Span<const ExternalConversionSegment> segments,

@@ -130,7 +130,7 @@ class CandidateWindow : public ATL::CWindowImpl<CandidateWindow, ATL::CWindow,
   void PresentCachedBitmapImmediately();
   // Hides both the candidate window and its renderer-owned visual effects.
   // This avoids one-frame shadow remnants when WindowManager suppresses or
-  // relocates candidate UI during live-conversion ruby updates.
+  // relocates candidate UI when its placement changes.
   void HideWithEffects();
   void SetSendCommandInterface(
       client::SendCommandInterface* send_command_interface);

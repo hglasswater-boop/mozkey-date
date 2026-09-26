@@ -157,8 +157,8 @@ class ConfigDialog : public QDialog, private MozkeyConfigDialogUi {
   virtual void EditRomanTable();
   virtual void ResetToDefaults();
   virtual void SelectInputModeSetting(int index);
-  virtual void SelectLiveConversionSetting(int state);
-  virtual void SelectZenzLiveCorrectionSetting(int state);
+  virtual void SelectZenzConversionSetting(int state);
+  virtual void SelectZenzContextSetting(int state);
   virtual void SelectZenzRightContextSetting(int state);
   virtual void SelectZenzFeedbackLearningSetting(int state);
   virtual void SelectAutoConversionSetting(int state);

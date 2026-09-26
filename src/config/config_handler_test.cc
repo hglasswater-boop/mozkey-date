@@ -44,10 +44,12 @@
 #include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/clock_mock.h"
+#include "base/config_file_stream.h"
 #include "base/file/temp_dir.h"
 #include "base/file_util.h"
 #include "base/system_util.h"
 #include "base/thread.h"
+#include "google/protobuf/unknown_field_set.h"
 #include "protocol/config.pb.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
@@ -79,41 +81,37 @@ constexpr uint32_t kExpectedMozkeyDirectCommitKey =
     Config::DIRECT_COMMIT_CLOSE_BRACKET;
 
 void SetMozkeyProductDefaultsForTesting(Config* config) {
-  config->set_use_live_conversion(true);
   config->set_show_candidate_window_on_initial_conversion(true);
   config->set_use_direct_commit(true);
   config->set_direct_commit_key(kExpectedMozkeyDirectCommitKey);
-  config->set_use_zenz_live_correction(true);
+  config->set_use_zenz_conversion(true);
+  config->set_use_zenz_context(true);
   config->set_use_zenz_feedback_learning(true);
-  config->set_use_zenz_live_correction_right_context(true);
-  config->set_use_realtime_conversion(false);
+  config->set_use_zenz_right_context(true);
+  config->set_use_realtime_conversion(true);
 }
 
 void ExpectMozkeyProductDefaults(const Config& config) {
-  EXPECT_TRUE(config.use_live_conversion());
-  EXPECT_EQ(config.live_conversion_delay_msec(), 228);
-  EXPECT_EQ(config.live_conversion_min_key_length(), 2);
   EXPECT_TRUE(config.show_candidate_window_on_initial_conversion());
 
   EXPECT_TRUE(config.use_direct_commit());
   EXPECT_EQ(config.direct_commit_key(), kExpectedMozkeyDirectCommitKey);
 
-  EXPECT_TRUE(config.use_zenz_live_correction());
-  EXPECT_EQ(config.zenz_live_correction_delay_msec(), 1000);
-  EXPECT_EQ(config.zenz_live_correction_timeout_msec(), 180);
-  EXPECT_EQ(config.zenz_live_correction_min_key_length(), 2);
-  EXPECT_EQ(config.zenz_live_correction_left_context_length(), 24);
-  EXPECT_TRUE(config.use_zenz_synthetic_candidate());
+  EXPECT_TRUE(config.use_zenz_conversion());
+  EXPECT_EQ(config.zenz_conversion_timeout_msec(), 1000);
+  EXPECT_TRUE(config.use_zenz_context());
+  EXPECT_EQ(config.zenz_context_left_length(), 24);
+  EXPECT_TRUE(config.allow_zenz_synthetic_candidate());
   EXPECT_TRUE(config.use_zenz_feedback_learning());
   EXPECT_FALSE(config.use_zenz_auto_block_rejected_correction());
   EXPECT_EQ(config.zenz_auto_block_reject_threshold(), 3);
-  EXPECT_TRUE(config.use_zenz_live_correction_right_context());
-  EXPECT_EQ(config.zenz_live_correction_right_context_length(), 24);
+  EXPECT_TRUE(config.use_zenz_right_context());
+  EXPECT_EQ(config.zenz_context_right_length(), 24);
 
   EXPECT_EQ(config.history_learning_level(), Config::DEFAULT_HISTORY);
   EXPECT_TRUE(config.use_history_suggest());
   EXPECT_TRUE(config.use_dictionary_suggest());
-  EXPECT_FALSE(config.use_realtime_conversion());
+  EXPECT_TRUE(config.use_realtime_conversion());
   EXPECT_EQ(config.suggestions_size(), 3);
 }
 
@@ -185,26 +183,57 @@ TEST_F(ConfigHandlerTest, MozkeyProductDefaultsPreserveExplicitSettings) {
   ConfigHandler::Reload();
 
   Config input;
-  input.set_use_live_conversion(false);
   input.set_show_candidate_window_on_initial_conversion(false);
   input.set_use_direct_commit(false);
   input.set_direct_commit_key(0);
-  input.set_use_zenz_live_correction(false);
+  input.set_use_zenz_conversion(false);
   input.set_use_zenz_feedback_learning(false);
-  input.set_use_zenz_live_correction_right_context(false);
+  input.set_use_zenz_right_context(false);
   input.set_use_realtime_conversion(true);
 
   ConfigHandler::SetConfig(input);
   const Config output = ConfigHandler::GetCopiedConfig();
 
-  EXPECT_FALSE(output.use_live_conversion());
   EXPECT_FALSE(output.show_candidate_window_on_initial_conversion());
   EXPECT_FALSE(output.use_direct_commit());
   EXPECT_EQ(output.direct_commit_key(), 0);
-  EXPECT_FALSE(output.use_zenz_live_correction());
+  EXPECT_FALSE(output.use_zenz_conversion());
   EXPECT_FALSE(output.use_zenz_feedback_learning());
-  EXPECT_FALSE(output.use_zenz_live_correction_right_context());
+  EXPECT_FALSE(output.use_zenz_right_context());
   EXPECT_TRUE(output.use_realtime_conversion());
+}
+
+TEST_F(ConfigHandlerTest, MigratesRetiredZenzSettingsAndDropsRetiredFields) {
+  TempDirectory temp_dir = testing::MakeTempDirectoryOrDie();
+  const std::string config_file =
+      FileUtil::JoinPath(temp_dir.path(), "mozc_config_test_tmp");
+  ASSERT_OK(FileUtil::UnlinkIfExists(config_file));
+  ConfigHandler::SetConfigFileNameForTesting(config_file);
+
+  Config legacy_config;
+  google::protobuf::UnknownFieldSet* fields =
+      legacy_config.GetReflection()->MutableUnknownFields(&legacy_config);
+  fields->AddVarint(69, 1);    // Retired toggle.
+  fields->AddVarint(70, 228);  // Retired delay.
+  fields->AddVarint(71, 2);    // Retired minimum length.
+  fields->AddVarint(1003, 0);  // Retired Zenz enable setting.
+  fields->AddVarint(1005, 500);
+  fields->AddVarint(1007, 12);
+  fields->AddVarint(1016, 1);
+  fields->AddVarint(1017, 10);
+  ASSERT_TRUE(ConfigFileStream::AtomicUpdate(
+      config_file, legacy_config.SerializeAsString()));
+
+  ConfigHandler::Reload();
+  const Config migrated = ConfigHandler::GetCopiedConfig();
+  EXPECT_FALSE(migrated.use_zenz_conversion());
+  EXPECT_EQ(migrated.zenz_conversion_timeout_msec(), 500);
+  EXPECT_EQ(migrated.zenz_context_left_length(), 12);
+  EXPECT_TRUE(migrated.use_zenz_context());
+  EXPECT_TRUE(migrated.use_zenz_right_context());
+  EXPECT_EQ(migrated.zenz_context_right_length(), 10);
+  EXPECT_EQ(migrated.GetReflection()->GetUnknownFields(migrated).field_count(),
+            0);
 }
 
 TEST_F(ConfigHandlerTest, SetMetadata) {
@@ -339,15 +368,14 @@ TEST_F(ConfigHandlerTest, GetDefaultConfig) {
   EXPECT_EQ(output.session_keymap(), Config::MSIME);
 #endif  // __APPLE__ || OS_CHROMEOS
 
-  EXPECT_FALSE(output.has_use_live_conversion());
   EXPECT_FALSE(output.has_show_candidate_window_on_initial_conversion());
   EXPECT_FALSE(output.has_use_direct_commit());
   EXPECT_FALSE(output.has_direct_commit_key());
-  EXPECT_FALSE(output.has_use_zenz_live_correction());
+  EXPECT_FALSE(output.has_use_zenz_conversion());
   EXPECT_FALSE(output.has_use_zenz_feedback_learning());
-  EXPECT_FALSE(output.has_use_zenz_live_correction_right_context());
+  EXPECT_FALSE(output.has_use_zenz_right_context());
   EXPECT_FALSE(output.has_use_realtime_conversion());
-  EXPECT_EQ(output.live_conversion_min_key_length(), 2);
+  EXPECT_TRUE(output.use_realtime_conversion());
   EXPECT_EQ(output.character_form_rules_size(), 13);
 
   struct TestCase {

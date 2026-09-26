@@ -317,58 +317,37 @@ message Config {
   // using Henkan key as IME_ON.
   repeated SessionKeymap overlay_keymaps = 68 [packed = true];
 
-  // Use live conversion.
-  // If this is true, the current composition is converted on every character
-  // input without committing the previous live conversion result.
-  // Mozkey enables this by default in ConfigHandler.
-  optional bool use_live_conversion = 69 [default = false];
+  // These fields were removed with live conversion. Keep their numbers and
+  // names reserved so they cannot be reused accidentally.
+  reserved 69 to 71;
+  reserved "use_live_conversion", "live_conversion_delay_msec",
+      "live_conversion_min_key_length";
 
-  // Delay in milliseconds before applying live conversion after character input.
-  // If this value is 0, live conversion is applied immediately.
-  optional uint32 live_conversion_delay_msec = 70 [default = 228];
-
-  // Minimum reading length in Unicode characters before live conversion is
-  // allowed.  The default keeps single-character particles such as 「に」,
-  // 「を」, and 「が」 from being converted too eagerly while typing.
-  optional uint32 live_conversion_min_key_length = 71 [default = 2];
-
-  // When live conversion is disabled, the initial Convert command in
-  // composition mode opens the conversion candidate window without advancing
-  // the focused candidate. Mozkey enables this by default in ConfigHandler.
+  // The initial Convert command in composition mode opens the conversion
+  // candidate window without advancing the focused candidate.
   optional bool show_candidate_window_on_initial_conversion = 72
       [default = false];
 
-  // Use asynchronous zenz live correction after normal live conversion.
-  // Mozkey enables this by default in ConfigHandler.
-  optional bool use_zenz_live_correction = 1003 [default = false];
+  // Legacy live-correction settings. Their wire numbers are permanently
+  // reserved; ConfigHandler migrates reusable values to the settings below.
+  reserved 1003 to 1010;
+  reserved 1012 to 1017;
+  reserved "use_zenz_live_correction",
+      "zenz_live_correction_delay_msec",
+      "zenz_live_correction_timeout_msec",
+      "zenz_live_correction_min_key_length",
+      "zenz_live_correction_left_context_length",
+      "use_zenz_synthetic_candidate",
+      "zenz_live_correction_pipe_name",
+      "zenz_live_correction_debug",
+      "zenz_live_correction_profile",
+      "zenz_live_correction_topic",
+      "zenz_live_correction_style",
+      "zenz_live_correction_settings",
+      "use_zenz_live_correction_right_context",
+      "zenz_live_correction_right_context_length";
 
-  // Debounce in milliseconds before submitting a zenz live correction request
-  // after normal live conversion has become visible.
-  optional uint32 zenz_live_correction_delay_msec = 1004 [default = 1000];
-
-  // Timeout in milliseconds for one zenz live correction request.
-  optional uint32 zenz_live_correction_timeout_msec = 1005 [default = 180];
-
-  // Minimum reading length in Unicode characters before zenz is allowed to run.
-  optional uint32 zenz_live_correction_min_key_length = 1006 [default = 2];
-
-  // Maximum left context length in Unicode characters.
-  // The runtime sanitizer may further drop this context when it looks sensitive.
-  optional uint32 zenz_live_correction_left_context_length = 1007 [default = 24];
-
-  // Allow zenz output not found in Mozc candidates to be shown as a synthetic
-  // live preedit. v0 uses this only for live preedit display, not dictionary
-  // registration.
-  optional bool use_zenz_synthetic_candidate = 1008 [default = true];
-
-  // Windows named pipe endpoint for zenz_scorer.exe.
-  optional string zenz_live_correction_pipe_name = 1009
-      [default = "\\\\.\\pipe\\mozc_zenz_scorer"];
-
-  // Debug logging for zenz live correction.
-  optional bool zenz_live_correction_debug = 1010 [default = false];
-
-  // Record and reuse local feedback for zenz live correction.
+  // Record and reuse local feedback for Zenz conversion.
   // This stores only local TSV data and never sends feedback outside the machine.
   // Raw left context is not stored. Mozkey enables this by default in
   // ConfigHandler.
@@ -385,21 +364,32 @@ message Config {
   // policy suppresses the same key/context/value correction.
   optional uint32 zenz_auto_block_reject_threshold = 1019 [default = 3];
 
-  // Zenzai v3/v3.2 condition fields. Empty values are omitted from the prompt.
-  // These are not chat prompts; they are mapped to zenz special-token fields:
-  // U+EE03 profile, U+EE04 topic, U+EE05 style, U+EE06 settings.
-  optional string zenz_live_correction_profile = 1012 [default = ""];
-  optional string zenz_live_correction_topic = 1013 [default = ""];
-  optional string zenz_live_correction_style = 1014 [default = ""];
-  optional string zenz_live_correction_settings = 1015 [default = ""];
+  // Use Zenz only after an explicit normal conversion request. Prediction and
+  // suggestion continue to use Mozc's existing paths.
+  optional bool use_zenz_conversion = 1031 [default = false];
 
-  // Zenzai v3.2 right-context support. The actual text is taken from
-  // commands::Context::following_text when the client supplies it. Mozkey keeps
-  // this enabled in its product defaults.
-  optional bool use_zenz_live_correction_right_context = 1016
-      [default = true];
-  optional uint32 zenz_live_correction_right_context_length = 1017
-      [default = 24];
+  // Whether bounded surrounding text may be included in a Zenz request.
+  optional bool use_zenz_context = 1032 [default = false];
+
+  // Context and runtime settings for normal conversion. Context is sanitized
+  // before it is sent to the local Zenz runtime.
+  optional uint32 zenz_context_left_length = 1033 [default = 24];
+  optional uint32 zenz_conversion_timeout_msec = 1034 [default = 1000];
+  optional string zenz_pipe_name = 1035
+      [default = "\\\\.\\pipe\\mozc_zenz_scorer"];
+  optional bool allow_zenz_synthetic_candidate = 1036 [default = true];
+  optional bool zenz_debug = 1037 [default = false];
+
+  // Zenzai v3/v3.2 condition fields. Empty values are omitted from the prompt.
+  // These are mapped to Zenz special-token fields U+EE03 through U+EE06.
+  optional string zenz_profile = 1038 [default = ""];
+  optional string zenz_topic = 1039 [default = ""];
+  optional string zenz_style = 1040 [default = ""];
+  optional string zenz_settings = 1041 [default = ""];
+
+  // Right-side context is read only when context sharing is enabled.
+  optional bool use_zenz_right_context = 1042 [default = true];
+  optional uint32 zenz_context_right_length = 1043 [default = 24];
 
   //////////////////////////////////////////////////////////////
   //
@@ -470,9 +460,8 @@ message Config {
   // you haven't typed before.
   optional bool use_dictionary_suggest = 101 [default = true];
 
-  // Use realtime conversion feature. Mozkey disables this by default in
-  // ConfigHandler because normal live conversion already provides inline
-  // conversion results.
+  // Use realtime conversion feature for prediction and suggestion candidates.
+  // This remains independent from explicit normal conversion.
   optional bool use_realtime_conversion = 102 [default = true];
 
   // Size of suggestions.
@@ -485,7 +474,7 @@ message Config {
   // Use mode indicator feature.
   optional bool use_mode_indicator = 120 [default = true];
 
-  // Use dark mode for candidate window and ruby overlay on Windows.
+  // Use dark mode for the candidate window on Windows.
   // Deprecated UI-wise. Newer clients should use the per-window appearance
   // settings below and keep this field synchronized for backward compatibility.
   optional bool use_dark_mode_candidate_window = 121 [default = false];
@@ -513,12 +502,14 @@ message Config {
   optional bool use_custom_preedit_target_underline_color = 132 [default = false];
   optional uint32 preedit_target_underline_color = 133 [default = 0x0066ff];
 
-  // Font family name for candidate and ruby windows on Windows TSF.
+  // Font family name for candidate and suggestion windows on Windows TSF.
   // Empty string means the platform/default font.
-  optional string candidate_ruby_font_name = 134 [default = ""];
+  optional string candidate_font_name = 134 [default = ""];
+  reserved "candidate_ruby_font_name";
 
-  // Show ruby window during live conversion on Windows.
-  optional bool show_live_conversion_ruby_window = 135 [default = true];
+  // Removed with the live-conversion ruby window.
+  reserved 135;
+  reserved "show_live_conversion_ruby_window";
 
 
   enum RendererWindowColorTheme {
@@ -545,18 +536,10 @@ message Config {
     optional uint32 scrollbar_indicator_color = 13 [default = 0x7590b8];
   }
 
-  message RubyWindowColorPalette {
-    // Color values are stored as 0xRRGGBB, not Windows COLORREF.
-    optional uint32 background_color = 1 [default = 0xffffff];
-    optional uint32 text_color = 2 [default = 0x000000];
-    optional uint32 border_color = 3 [default = 0x969696];
-  }
-
-  // Candidate, prediction/suggestion, and ruby window appearance on desktop
-  // renderers (Windows and macOS).
+  // Candidate and prediction/suggestion window appearance on desktop renderers
+  // (Windows and macOS).
   // CONVERSION, TRANSLITERATION, and USAGE use the candidate window appearance.
   // PREDICTION and SUGGESTION use the suggest window appearance.
-  // RubyWindow has its own compact palette.
   optional RendererWindowColorTheme candidate_window_color_theme = 136
       [default = RENDERER_WINDOW_COLOR_LIGHT];
   optional CandidateWindowColorPalette candidate_window_custom_color_palette =
@@ -567,25 +550,27 @@ message Config {
   optional CandidateWindowColorPalette suggest_window_custom_color_palette =
       139;
 
-  optional RendererWindowColorTheme ruby_window_color_theme = 140
-      [default = RENDERER_WINDOW_COLOR_FOLLOW_CANDIDATE];
-  optional RubyWindowColorPalette ruby_window_custom_color_palette = 141;
+  reserved 140, 141;
+  reserved "ruby_window_color_theme", "ruby_window_custom_color_palette";
 
   // Window corner radius. 0 means square corners.
   optional uint32 candidate_window_custom_corner_radius = 142 [default = 6];
   optional uint32 suggest_window_custom_corner_radius = 143 [default = 6];
-  optional uint32 ruby_window_custom_corner_radius = 144 [default = 9];
+  reserved 144;
+  reserved "ruby_window_custom_corner_radius";
 
-  // Candidate-like and ruby window size. 100 means the current default size.
+  // Candidate-like window size. 100 means the current default size.
   optional uint32 candidate_window_size_percent = 145 [default = 100];
   optional uint32 suggest_window_size_percent = 146 [default = 100];
-  optional uint32 ruby_window_size_percent = 147 [default = 100];
+  reserved 147;
+  reserved "ruby_window_size_percent";
 
   // Whole-window opacity. 100 is fully opaque. Values are clamped by the
   // renderer so that the UI cannot become accidentally invisible.
   optional uint32 candidate_window_opacity_percent = 148 [default = 100];
   optional uint32 suggest_window_opacity_percent = 149 [default = 100];
-  optional uint32 ruby_window_opacity_percent = 150 [default = 90];
+  reserved 150;
+  reserved "ruby_window_opacity_percent";
 
   // Custom shadow. Size 0, distance 0 with size 0, or opacity 0 disables
   // the custom shadow. Size and distance are logical pixels and are DPI-scaled
@@ -599,28 +584,24 @@ message Config {
   optional uint32 suggest_window_shadow_opacity_percent = 156 [default = 10];
   optional uint32 suggest_window_shadow_angle_degrees = 157 [default = 45];
   optional uint32 suggest_window_shadow_distance = 158 [default = 6];
-  optional uint32 ruby_window_shadow_size = 159 [default = 5];
-  optional uint32 ruby_window_shadow_opacity_percent = 160 [default = 8];
-  optional uint32 ruby_window_shadow_angle_degrees = 161 [default = 45];
-  optional uint32 ruby_window_shadow_distance = 162 [default = 3];
+  reserved 159 to 162;
+  reserved "ruby_window_shadow_size", "ruby_window_shadow_opacity_percent",
+      "ruby_window_shadow_angle_degrees", "ruby_window_shadow_distance";
 
   // Do not reuse these tags. A locally tested build assigned Ruby spacing to
   // them and could reinterpret unknown fields preserved in existing configs.
   reserved 164, 165, 166;
 
-  // Ruby window spacing. These are Mozkey-specific logical design values at
-  // the 150% (144 DPI) baseline and are additionally scaled by
-  // ruby_window_size_percent. Mozkey-specific fields use the 1000+ range.
-  optional uint32 ruby_window_horizontal_padding = 1020 [default = 14];
-  optional uint32 ruby_window_vertical_padding = 1021 [default = 6];
-  optional uint32 ruby_window_composition_gap = 1022 [default = 4];
+  // These tags were used by removed live-conversion ruby-window settings.
+  reserved 1020 to 1022, 1025;
+  reserved "ruby_window_horizontal_padding", "ruby_window_vertical_padding",
+      "ruby_window_composition_gap", "ruby_window_font_weight";
 
   // Font weights use the Windows LOGFONT scale. The settings UI exposes
   // 100-step values from 100 (Thin) through 900 (Black). 400 matches the
-  // upstream Mozc candidate/suggestion text weight and is also used for ruby.
+  // upstream Mozc candidate/suggestion text weight.
   optional uint32 candidate_window_font_weight = 1023 [default = 400];
   optional uint32 suggest_window_font_weight = 1024 [default = 400];
-  optional uint32 ruby_window_font_weight = 1025 [default = 400];
 
   enum WindowsImeIconStyle {
     WINDOWS_IME_ICON_DEFAULT = 0;

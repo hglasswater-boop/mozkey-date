@@ -15,7 +15,7 @@
 #endif  // TARGET_OS_OSX
 #endif  // __APPLE__
 
-#include "session/zenz_live_corrector.h"
+#include "session/zenz_conversion_service.h"
 #include "session/zenz_named_pipe_client.h"
 #include "session/zenz_unix_socket_client.h"
 #include "zenz/zenz_unix_socket_path.h"
