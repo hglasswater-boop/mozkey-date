@@ -1,4 +1,4 @@
-name: Issue 50 live conversion audit
+name: Issue 50 remove live conversion
 
 on:
   push:
@@ -8,35 +8,75 @@ on:
       - '.github/workflows/issue50-live-conversion-audit.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
+  apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Probe foundational live-conversion revert
+          ref: issue-50-remove-live-conversion
+          fetch-depth: 1
+      - name: Remove live conversion from product paths
         shell: bash
         run: |
-          set +e
-          echo '=== ANCESTRY ==='
-          git cat-file -t cd2005ae31bbeb3dd67f646695eb29f111b89068
-          git merge-base --is-ancestor cd2005ae31bbeb3dd67f646695eb29f111b89068 HEAD
-          echo "ancestor_exit=$?"
-          echo '=== DRY REVERT ==='
-          git config user.name issue50-audit
-          git config user.email issue50-audit@users.noreply.github.com
-          git revert -m 1 --no-commit cd2005ae31bbeb3dd67f646695eb29f111b89068
-          revert_exit=$?
-          echo "revert_exit=${revert_exit}"
-          git status --short
-          echo '=== CONFLICTS ==='
-          git diff --name-only --diff-filter=U || true
-          echo '=== DIFF STAT ==='
-          git diff --stat || true
-          git revert --abort >/dev/null 2>&1 || git reset --hard HEAD >/dev/null 2>&1
-          echo '=== LIVE CONVERSION REFERENCES ==='
-          git grep -n -I -E 'use_live_conversion|live_conversion|LiveConversion|LIVE_CONVERSION|zenz_live|ZenzLive|show_live_conversion|APPLY_ZENZ_LIVE_CORRECTION' -- src README.md docs .github || true
-          exit 0
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              if old not in s:
+                  raise SystemExit(f'expected block not found: {path}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          path = 'src/config/config_handler.cc'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          blocks = [
+          '''  if (!config->has_use_live_conversion()) {\n    config->set_use_live_conversion(true);\n  }\n''',
+          '''  if (!config->has_use_zenz_live_correction()) {\n    config->set_use_zenz_live_correction(true);\n  }\n''',
+          '''  if (!config->has_use_zenz_live_correction_right_context()) {\n    config->set_use_zenz_live_correction_right_context(true);\n  }\n''',
+          '''  if (!config->has_use_realtime_conversion()) {\n    config->set_use_realtime_conversion(false);\n  }\n''',
+          ]
+          for block in blocks:
+              if block not in s:
+                  raise SystemExit(f'expected product-default block not found in {path}: {block!r}')
+              s = s.replace(block, '', 1)
+
+          marker = '''  ApplyMozkeyProductDefaults(config);\n'''
+          replacement = '''  ApplyMozkeyProductDefaults(config);\n\n  // Live conversion was removed from Mozkey Date.  Clear legacy persisted\n  // values so upgraded profiles cannot reactivate the old automatic-preedit\n  // conversion path.  Suggestion/prediction remains independent.\n  config->set_use_live_conversion(false);\n  config->set_use_zenz_live_correction(false);\n'''
+          if marker not in s:
+              raise SystemExit('NormalizeConfig marker not found')
+          s = s.replace(marker, replacement, 1)
+          p.write_text(s, encoding='utf-8')
+
+          path = 'src/gui/config_dialog/config_dialog.cc'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          marker = '''  setupUi(this);\n'''
+          replacement = '''  setupUi(this);\n\n  // Live conversion is no longer a product feature.  Keep the generated UI\n  // members temporarily while the protocol/session implementation is removed,\n  // but do not expose controls that can only configure the removed path.\n  for (QWidget *widget : findChildren<QWidget *>()) {\n    const QString name = widget->objectName();\n    if (name.contains(QStringLiteral("liveConversion"), Qt::CaseInsensitive) ||\n        name.contains(QStringLiteral("zenzLiveCorrection"),\n                      Qt::CaseInsensitive) ||\n        name == QStringLiteral("showLiveConversionRubyWindow")) {\n      widget->setVisible(false);\n    }\n  }\n  showCandidateWindowOnInitialConversionCheckBox->setText(\n      tr("Open candidate window on first conversion action"));\n'''
+          if marker not in s:
+              raise SystemExit('setupUi marker not found')
+          s = s.replace(marker, replacement, 1)
+          p.write_text(s, encoding='utf-8')
+
+          path = 'src/protocol/config.proto'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          old = '''  // Use realtime conversion feature. Mozkey disables this by default in\n  // ConfigHandler because normal live conversion already provides inline\n  // conversion results.\n  optional bool use_realtime_conversion = 102 [default = true];\n'''
+          new = '''  // Use realtime conversion suggestion. This is suggestion/prediction and is\n  // independent from the removed automatic-preedit live conversion feature.\n  optional bool use_realtime_conversion = 102 [default = true];\n'''
+          if old not in s:
+              raise SystemExit('realtime conversion comment block not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          git diff --check
+          git diff -- src/config/config_handler.cc src/gui/config_dialog/config_dialog.cc src/protocol/config.proto
+
+          git config user.name 'ChatGPT Codex Connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/config/config_handler.cc src/gui/config_dialog/config_dialog.cc src/protocol/config.proto
+          git commit -m 'Remove live conversion from product configuration (#50)'
+          git push origin HEAD:issue-50-remove-live-conversion
