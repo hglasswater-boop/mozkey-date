@@ -31,6 +31,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/flags/flag.h"
 #include "base/container/tuple.h"
@@ -210,6 +211,19 @@ bool FindCanonicalDate(const Segment& segment, int* year, int* month,
   return false;
 }
 
+bool FindCanonicalDateForDescription(const Segment& segment,
+                                     const std::string& description, int* year,
+                                     int* month, int* day) {
+  for (size_t i = 0; i < segment.candidates_size(); ++i) {
+    const converter::Candidate& candidate = segment.candidate(i);
+    if (candidate.description == description &&
+        ParseCanonicalDate(candidate.value, year, month, day)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 int WeekdaySundayFirst(int year, int month, int day) {
   // Tomohiko Sakamoto's Gregorian-calendar algorithm.  0 is Sunday.
   static constexpr int kMonthOffsets[] = {0, 3, 2, 5, 0, 3,
@@ -361,12 +375,31 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
         continue;
       }
 
+      struct DateParts {
+        int year;
+        int month;
+        int day;
+      };
+      std::vector<DateParts> candidate_dates;
+      candidate_dates.reserve(segment->candidates_size());
+      // A weekday conversion contains three dates in one segment. Resolve
+      // every description before filtering can remove its canonical candidate.
+      for (size_t i = 0; i < segment->candidates_size(); ++i) {
+        DateParts date{year, month, day};
+        FindCanonicalDateForDescription(*segment,
+                                        segment->candidate(i).description,
+                                        &date.year, &date.month, &date.day);
+        candidate_dates.push_back(date);
+      }
+
       for (size_t candidate_index = 0;
            candidate_index < segment->candidates_size(); ++candidate_index) {
         converter::Candidate* candidate =
             segment->mutable_candidate(candidate_index);
         const std::string original_value = candidate->value;
-        if (!ExpandDateFormatTokens(year, month, day, &candidate->value)) {
+        const DateParts& date = candidate_dates[candidate_index];
+        if (!ExpandDateFormatTokens(date.year, date.month, date.day,
+                                    &candidate->value)) {
           continue;
         }
         if (candidate->content_value == original_value) {
@@ -386,8 +419,9 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
         if (!IsDateCandidateDescription(candidate.description)) {
           continue;
         }
-        if (IsConfiguredDateValue(request.config(), year, month, day,
-                                  candidate.value)) {
+        const DateParts& date = candidate_dates[index];
+        if (IsConfiguredDateValue(request.config(), date.year, date.month,
+                                  date.day, candidate.value)) {
           continue;
         }
         segment->erase_candidate(static_cast<int>(index));

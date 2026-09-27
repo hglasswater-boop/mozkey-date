@@ -34,6 +34,8 @@
 #include <string>
 
 #include "absl/log/check.h"
+#include "base/clock.h"
+#include "base/clock_mock.h"
 #include "converter/attribute.h"
 #include "converter/candidate.h"
 #include "converter/segments.h"
@@ -62,6 +64,18 @@ size_t CommandCandidatesSize(const Segment& segment) {
 bool HasCandidateValue(const Segment& segment, const std::string& value) {
   for (size_t i = 0; i < segment.candidates_size(); ++i) {
     if (segment.candidate(i).value == value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool HasCandidateValueAndDescription(const Segment& segment,
+                                     const std::string& value,
+                                     const std::string& description) {
+  for (size_t i = 0; i < segment.candidates_size(); ++i) {
+    const converter::Candidate& candidate = segment.candidate(i);
+    if (candidate.value == value && candidate.description == description) {
       return true;
     }
   }
@@ -200,6 +214,38 @@ TEST_F(RewriterTest, DateFormatListFiltersUnconfiguredDateCandidates) {
   EXPECT_FALSE(HasCandidateValue(*seg, "2026/09/08"));
   EXPECT_FALSE(HasCandidateValue(*seg, "2026-09-08"));
   EXPECT_TRUE(HasCandidateValue(*seg, "keep-me"));
+}
+
+TEST_F(RewriterTest, WeekdayDateFormatsKeepEachWeek) {
+  ClockMock mock_clock(ParseTimeOrDie("2026-09-25T12:00:00Z"));
+  Clock::SetClockForUnitTest(&mock_clock);
+
+  config::Config config;
+  config.set_use_date_conversion(true);
+  config.set_date_conversion_custom_formats_initialized(true);
+  config.add_date_conversion_custom_formats(
+      "{YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})");
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetConfig(config).Build();
+
+  for (const std::string& key : {"きんよう", "きんようび"}) {
+    Segments segments;
+    Segment* seg = segments.push_back_segment();
+    seg->set_key(key);
+    seg->add_candidate()->value = key == "きんよう" ? "金曜" : "金曜日";
+
+    EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
+    EXPECT_TRUE(HasCandidateValueAndDescription(*seg, "2026/9/25(金)",
+                                                "今週の日付"));
+    EXPECT_TRUE(HasCandidateValueAndDescription(*seg, "2026/10/2(金)",
+                                                "来週の日付"));
+    EXPECT_TRUE(HasCandidateValueAndDescription(*seg, "2026/9/18(金)",
+                                                "先週の日付"));
+    EXPECT_FALSE(HasCandidateValueAndDescription(*seg, "2026/09/25",
+                                                 "今週の日付"));
+  }
+
+  Clock::SetClockForUnitTest(nullptr);
 }
 
 TEST_F(RewriterTest, EmptyInitializedDateFormatListRemovesDateCandidates) {

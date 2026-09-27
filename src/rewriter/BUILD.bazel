@@ -1641,6 +1641,8 @@ mozc_cc_test(
     deps = [
         "rewriter",
         ":rewriter_interface",
+        "//base:clock",
+        "//base:clock_mock",
         "//converter:attribute",
         "//converter:segments",
         "//data_manager/testing:mock_data_manager",
