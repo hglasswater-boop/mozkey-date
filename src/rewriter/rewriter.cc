@@ -222,6 +222,21 @@ std::map<std::string, CalendarDate> FindCanonicalDates(const Segment& segment) {
   return dates;
 }
 
+const CalendarDate* FindSingleDate(
+    const std::map<std::string, CalendarDate>& dates) {
+  const CalendarDate* result = nullptr;
+  for (const auto& entry : dates) {
+    const CalendarDate& date = entry.second;
+    if (result != nullptr &&
+        (result->year != date.year || result->month != date.month ||
+         result->day != date.day)) {
+      return nullptr;
+    }
+    result = &date;
+  }
+  return result;
+}
+
 int WeekdaySundayFirst(int year, int month, int day) {
   // Tomohiko Sakamoto's Gregorian-calendar algorithm.  0 is Sunday.
   static constexpr int kMonthOffsets[] = {0, 3, 2, 5, 0, 3,
@@ -373,6 +388,10 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
         continue;
       }
 
+      // Earlier rewriters can annotate legacy, externally supplied candidates
+      // with different descriptions. A single unambiguous target date remains
+      // usable for those candidates, but must never mix multiple weekday dates.
+      const CalendarDate* single_date = FindSingleDate(dates);
       const bool filter = CanFilterToConfiguredDateFormats(request.config());
       for (size_t candidate_index = segment->candidates_size();
            candidate_index > 0; --candidate_index) {
@@ -380,12 +399,13 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
         converter::Candidate* candidate =
             segment->mutable_candidate(index);
         const auto it = dates.find(candidate->description);
-        if (it == dates.end()) {
+        const CalendarDate* date =
+            it == dates.end() ? single_date : &it->second;
+        if (date == nullptr) {
           continue;
         }
-        const CalendarDate& date = it->second;
         const std::string original_value = candidate->value;
-        if (ExpandDateFormatTokens(date.year, date.month, date.day,
+        if (ExpandDateFormatTokens(date->year, date->month, date->day,
                                    &candidate->value)) {
           if (candidate->content_value == original_value) {
             candidate->content_value = candidate->value;
@@ -395,8 +415,8 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
         if (!filter || !IsDateCandidateDescription(candidate->description)) {
           continue;
         }
-        if (IsConfiguredDateValue(request.config(), date.year, date.month,
-                                  date.day, candidate->value)) {
+        if (IsConfiguredDateValue(request.config(), date->year, date->month,
+                                  date->day, candidate->value)) {
           continue;
         }
         segment->erase_candidate(static_cast<int>(index));
