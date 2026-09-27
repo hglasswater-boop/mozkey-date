@@ -4108,6 +4108,9 @@ bool Session::OutputZenzConversion(
   zenz_conversion_value_ = std::string(value);
   zenz_conversion_selected_ = true;
   context_->mutable_converter()->SetCandidateListVisible(true);
+  command->mutable_output()->clear_preedit();
+  command->mutable_output()->clear_candidate_window();
+  command->mutable_output()->clear_all_candidate_words();
   Output(command);
   return true;
 }
@@ -5768,6 +5771,16 @@ void Session::FillZenzConversionCandidateOutput(commands::Output* output) const 
     return;
   }
   const commands::CandidateWindow original_window = output->candidate_window();
+  absl::string_view shortcuts;
+  if (original_window.candidate_size() > 0) {
+    const std::string& first_shortcut =
+        original_window.candidate(0).annotation().shortcut();
+    if (first_shortcut == "1") {
+      shortcuts = "123456789";
+    } else if (first_shortcut == "a") {
+      shortcuts = "asdfghjkl";
+    }
+  }
   AddZenzCandidate(output, zenz_conversion_key_,
                             zenz_conversion_value_,
                             zenz_conversion_selected_,
@@ -5795,10 +5808,9 @@ void Session::FillZenzConversionCandidateOutput(commands::Output* output) const 
         candidate->mutable_annotation()->set_description("Zenz");
       }
       const int slot = i - start;
-      if (slot < original_window.candidate_size() &&
-          original_window.candidate(slot).annotation().has_shortcut()) {
+      if (slot < shortcuts.size()) {
         candidate->mutable_annotation()->set_shortcut(
-            original_window.candidate(slot).annotation().shortcut());
+            std::string(shortcuts.substr(slot, 1)));
       }
     }
     if (zenz_conversion_selected_) {

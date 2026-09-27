@@ -1087,6 +1087,68 @@ TEST_F(SessionTest, ZenzConversionCandidatesSupportSelectionNavigationAndCommit)
   }
 }
 
+TEST_F(SessionTest, ZenzConversionCandidateCommitsWholeMultiSegmentReading) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  std::atomic<bool> inference_completed = false;
+  Session session(engine);
+  config::Config config;
+  config::ConfigHandler::GetDefaultConfig(&config);
+  config.set_use_zenz_conversion(true);
+  config.set_use_zenz_context(false);
+  config.set_use_zenz_feedback_learning(false);
+  config.set_allow_zenz_synthetic_candidate(true);
+  config.set_show_candidate_window_on_initial_conversion(true);
+  session.SetConfig(config);
+  session.SetKeyMapManager(std::make_shared<keymap::KeyMapManager>(config));
+  InitSessionToPrecomposition(&session);
+  SessionTestPeer peer(session);
+  peer.zenz_conversion_service() = std::make_unique<ZenzConversionService>(
+      std::make_unique<FailingZenzClient>(&inference_completed));
+
+  commands::Command command;
+  ASSERT_TRUE(InsertCharacterChars("kyouhagenki", &session, &command));
+  Segments segments;
+  Segment* segment = segments.add_segment();
+  segment->set_key("きょうは");
+  segment->set_segment_type(Segment::FREE);
+  AddCandidate("きょうは", "今日は", segment);
+  segment = segments.add_segment();
+  segment->set_key("げんき");
+  segment->set_segment_type(Segment::FREE);
+  AddCandidate("げんき", "元気", segment);
+  FillT13Ns(CreateConversionRequest(session), &segments);
+  EXPECT_CALL(*converter, StartConversion(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+  ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::SPACE, &session, &command));
+  EXPECT_EQ(GetComposition(command), "今日は元気");
+
+  ZenzConversionResponse response;
+  response.ok = true;
+  response.generation = peer.pending_zenz_conversion().generation;
+  response.key = "きょうはげんき";
+  response.value = "今日は元氣";
+  // Reuse the initial output to cover immediate feedback/output rebuilding.
+  ASSERT_TRUE(peer.ApplyZenzConversionResult(response, &command));
+  EXPECT_SINGLE_SEGMENT("今日は元氣", command);
+  const int zenz_id = command.output().all_candidate_words().candidates(0).id();
+  int zenz_count = 0;
+  for (const auto& candidate : command.output().all_candidate_words().candidates()) {
+    if (candidate.id() == zenz_id) {
+      ++zenz_count;
+    }
+  }
+  EXPECT_EQ(zenz_count, 1);
+
+  ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::SPACE, &session, &command));
+  EXPECT_EQ(GetComposition(command), "今日は元気");
+  SetSendCommandCommand(commands::SessionCommand::SUBMIT_CANDIDATE, &command);
+  command.mutable_input()->mutable_command()->set_id(zenz_id);
+  ASSERT_TRUE(session.SendCommand(&command));
+  EXPECT_RESULT("今日は元氣", command);
+  EXPECT_EQ(command.output().result().key(), "きょうはげんき");
+}
+
 TEST_F(SessionTest, DisabledZenzKeepsMozcNormalConversion) {
   MockEngine engine;
   std::shared_ptr<MockConverter> converter =
