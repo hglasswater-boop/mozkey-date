@@ -817,6 +817,18 @@ class SessionTest : public testing::TestWithTempUserProfile {
     return mock_converter;
   }
 
+  void ExpectReadingPredictions(MockConverter* converter) {
+    EXPECT_CALL(*converter, StartPrediction(_, _))
+        .WillRepeatedly(Invoke([](const ConversionRequest& request,
+                                 Segments* segments) {
+          segments->clear_conversion_segments();
+          Segment* segment = segments->add_segment();
+          segment->set_key(request.key());
+          AddCandidate(request.key(), request.key(), segment);
+          return true;
+        }));
+  }
+
   void EnableZenzFeedbackLearning(Session* session) {
     config::Config config;
     config::ConfigHandler::GetDefaultConfig(&config);
@@ -1066,6 +1078,7 @@ TEST_F(SessionTest,
   MockEngine engine;
   std::shared_ptr<MockConverter> converter =
       CreateEngineConverterMock(&engine);
+  ExpectReadingPredictions(converter.get());
 
   Session session(engine);
   config::Config config;
@@ -1172,7 +1185,8 @@ TEST_F(SessionTest,
 
 TEST_F(SessionTest, ZenzSuggestionIsSelectableAndCommitsThroughCandidateFlow) {
   MockEngine engine;
-  CreateEngineConverterMock(&engine);
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  ExpectReadingPredictions(converter.get());
 
   Session session(engine);
   config::Config config;
