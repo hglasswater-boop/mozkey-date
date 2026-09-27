@@ -521,6 +521,7 @@ std::unique_ptr<converter::Candidate> CreateCandidate(
   candidate->rid = base_candidate.rid;
   candidate->cost = base_candidate.cost;
   candidate->value = std::move(value);
+  candidate->content_value = candidate->value;
   candidate->key = base_candidate.key;
   candidate->content_key = base_candidate.content_key;
   candidate->attributes |= (converter::Attribute::NO_LEARNING |
