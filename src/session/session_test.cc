@@ -1700,6 +1700,8 @@ TEST_F(SessionTest, PendingZenzFeedbackStoresContextClassOnly) {
 }
 
 
+#endif  // defined(_WIN32)
+
 class RecordingExternalLearningConverter : public MockConverter {
  public:
   bool LearnExternalConversionResult(
@@ -1850,6 +1852,19 @@ TEST_F(SessionTest, ZenzMozcHistoryLearningIsDisabledInPasswordField) {
       "かれはてんきです", "彼は天気です"));
   EXPECT_EQ(converter->learn_call_count, 0);
 }
+
+#if defined(_WIN32)
+void SetPendingRejectedZenzFeedbackForTest(SessionTestPeer* session_peer) {
+  session_peer->context_()->set_state(ImeContext::CONVERSION);
+  session_peer->zenz_conversion_visible_generation_() = 1;
+  session_peer->zenz_conversion_key_() = "かれはてんてきです";
+  session_peer->zenz_conversion_value_() = "彼は天敵です";
+  session_peer->zenz_conversion_mozc_value_() = "彼は点滴です";
+  session_peer->zenz_conversion_context_class_() = "empty";
+  session_peer->SetPendingZenzFeedbackRejected("space_revert_zenz_to_mozc");
+  session_peer->context_()->set_state(ImeContext::PRECOMPOSITION);
+}
+#endif  // defined(_WIN32)
 
 TEST_F(SessionTest, PendingRejectedZenzFeedbackIsNeutralWithoutFinalCommit) {
 #if defined(_WIN32)
@@ -2146,6 +2161,8 @@ TEST_F(SessionTest, PendingDirectCommitLearningIgnoresEmptyResult) {
 
   EXPECT_FALSE(session_peer.pending_direct_commit_learning_().pending);
 }
+
+#endif  // defined(_WIN32)
 
 TEST_F(SessionTest, TestSendKey) {
   MockEngine engine;
