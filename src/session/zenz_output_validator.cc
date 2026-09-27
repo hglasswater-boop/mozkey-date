@@ -433,6 +433,13 @@ ZenzValidationResult ZenzOutputValidator::Validate(
     return Reject("same_as_mozc");
   }
 
+  // An unchanged reading is not a conversion. Keeping Mozc's result avoids
+  // replacing the converted preedit with kana while its candidate list still
+  // shows the original conversion.
+  if (input.zenz_value == input.key) {
+    return Reject("same_as_reading");
+  }
+
   if (Util::CharsLen(input.key) < input.min_key_length) {
     return Reject("too_short_key");
   }

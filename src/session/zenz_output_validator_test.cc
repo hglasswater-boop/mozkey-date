@@ -29,10 +29,37 @@
 
 #include "session/zenz_output_validator.h"
 
+#include <utility>
+
 #include "testing/gunit.h"
 
 namespace mozc::session {
 namespace {
+
+TEST(ZenzOutputValidatorTest, RejectsReadingThatWouldUndoMozcConversion) {
+  const ZenzOutputValidator validator;
+  for (const auto& [key, value] :
+       {std::pair{"げんき", "元気"}, std::pair{"てんき", "天気"},
+        std::pair{"きょうはげんき", "今日は元気"}}) {
+    ZenzValidationInput input;
+    input.key = key;
+    input.mozc_value = value;
+    input.zenz_value = key;
+    input.min_key_length = 2;
+    const ZenzValidationResult result = validator.Validate(input);
+    EXPECT_FALSE(result.accept) << key;
+    EXPECT_EQ(result.reason, "same_as_reading") << key;
+  }
+}
+
+TEST(ZenzOutputValidatorTest, AllowsKanaCorrectionThatDiffersFromReading) {
+  ZenzValidationInput input;
+  input.key = "こんにちわ";
+  input.mozc_value = "今日は";
+  input.zenz_value = "こんにちは";
+  input.min_key_length = 2;
+  EXPECT_TRUE(ZenzOutputValidator().Validate(input).accept);
+}
 
 TEST(ZenzOutputValidatorTest, RestoreUserVisibleSymbolStyleFullwidthBrackets) {
   EXPECT_EQ(ZenzOutputValidator::RestoreUserVisibleSymbolStyle(

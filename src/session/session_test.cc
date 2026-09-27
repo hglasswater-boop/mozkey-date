@@ -110,6 +110,7 @@ class SessionTestPeer : testing::TestPeer<Session> {
   PEER_METHOD(HandlePendingDirectCommitLearningForKeyEvent);
   PEER_METHOD(HandlePendingDirectCommitLearningForSessionCommand);
   PEER_METHOD(Suggest);
+  PEER_METHOD(ApplyZenzConversionResult);
 
   PEER_VARIABLE(context_);
   PEER_VARIABLE(undo_contexts_);
@@ -122,6 +123,7 @@ class SessionTestPeer : testing::TestPeer<Session> {
   PEER_VARIABLE(zenz_feedback_store_);
   PEER_VARIABLE(pending_zenz_feedback_);
   PEER_VARIABLE(pending_direct_commit_learning_);
+  PEER_VARIABLE(pending_zenz_conversion_);
 };
 
 namespace {
@@ -918,6 +920,68 @@ TEST_F(SessionTest, ZenzSuggestionIsSelectableAndCommitsThroughCandidateFlow) {
   ASSERT_TRUE(session.SendCommand(&commit));
   ASSERT_TRUE(commit.output().has_result());
   EXPECT_EQ(commit.output().result().value(), "愛上尾");
+}
+
+TEST_F(SessionTest, ZenzUnchangedReadingKeepsSpaceConversionAndCommit) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+
+  std::atomic<bool> inference_completed = false;
+  Session session(engine);
+  config::Config config;
+  config::ConfigHandler::GetDefaultConfig(&config);
+  config.set_use_zenz_conversion(true);
+  config.set_use_zenz_context(false);
+  config.set_use_zenz_feedback_learning(false);
+  config.set_allow_zenz_synthetic_candidate(true);
+  config.set_show_candidate_window_on_initial_conversion(true);
+  session.SetConfig(config);
+  session.SetKeyMapManager(std::make_shared<keymap::KeyMapManager>(config));
+  InitSessionToPrecomposition(&session);
+  SessionTestPeer(session).zenz_conversion_service() =
+      std::make_unique<ZenzConversionService>(
+          std::make_unique<FailingZenzClient>(&inference_completed));
+
+  commands::Command command;
+  ASSERT_TRUE(InsertCharacterChars("genki", &session, &command));
+  EXPECT_SINGLE_SEGMENT("げんき", command);
+
+  Segments segments;
+  Segment* segment = segments.add_segment();
+  segment->set_key("げんき");
+  segment->set_segment_type(Segment::FREE);
+  AddCandidate("げんき", "元気", segment);
+  AddCandidate("げんき", "げんき", segment);
+  FillT13Ns(CreateConversionRequest(session), &segments);
+  EXPECT_CALL(*converter, StartConversion(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+
+  ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::SPACE, &session, &command));
+  ASSERT_TRUE(command.output().zenz_conversion_pending());
+  EXPECT_SINGLE_SEGMENT("元気", command);
+  ASSERT_TRUE(command.output().has_candidate_window());
+  const std::string original_candidates =
+      command.output().candidate_window().SerializeAsString();
+
+  // Deliver the model result directly, without a real server or polling race.
+  SessionTestPeer peer(session);
+  ZenzConversionResponse response;
+  response.ok = true;
+  response.generation = peer.pending_zenz_conversion().generation;
+  response.key = "げんき";
+  response.value = "げんき";
+  command.Clear();
+  ASSERT_TRUE(peer.ApplyZenzConversionResult(response, &command));
+  EXPECT_FALSE(command.output().zenz_conversion_pending());
+  EXPECT_FALSE(command.output().zenz_conversion_applied());
+  EXPECT_EQ(command.output().zenz_conversion_debug(), "same_as_reading");
+  EXPECT_SINGLE_SEGMENT("元気", command);
+  EXPECT_EQ(command.output().candidate_window().SerializeAsString(),
+            original_candidates);
+  EXPECT_EQ(session.context().state(), ImeContext::CONVERSION);
+
+  ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::ENTER, &session, &command));
+  EXPECT_RESULT("元気", command);
 }
 
 TEST_F(SessionTest, DisabledZenzKeepsMozcNormalConversion) {
