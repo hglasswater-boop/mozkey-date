@@ -984,6 +984,109 @@ TEST_F(SessionTest, ZenzUnchangedReadingKeepsSpaceConversionAndCommit) {
   EXPECT_RESULT("元気", command);
 }
 
+TEST_F(SessionTest, ZenzConversionCandidatesSupportSelectionNavigationAndCommit) {
+  for (int commit_method = 0; commit_method < 3; ++commit_method) {
+    SCOPED_TRACE(commit_method);
+    MockEngine engine;
+    std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+    std::atomic<bool> inference_completed = false;
+    Session session(engine);
+    config::Config config;
+    config::ConfigHandler::GetDefaultConfig(&config);
+    config.set_use_zenz_conversion(true);
+    config.set_use_zenz_context(false);
+    config.set_use_zenz_feedback_learning(false);
+    config.set_allow_zenz_synthetic_candidate(true);
+    config.set_show_candidate_window_on_initial_conversion(true);
+    config.set_selection_shortcut(config::Config::SHORTCUT_123456789);
+    session.SetConfig(config);
+    session.SetKeyMapManager(std::make_shared<keymap::KeyMapManager>(config));
+    InitSessionToPrecomposition(&session);
+    SessionTestPeer peer(session);
+    peer.zenz_conversion_service() = std::make_unique<ZenzConversionService>(
+        std::make_unique<FailingZenzClient>(&inference_completed));
+
+    commands::Command command;
+    ASSERT_TRUE(InsertCharacterChars("kousei", &session, &command));
+    Segments segments;
+    Segment* segment = segments.add_segment();
+    segment->set_key("こうせい");
+    segment->set_segment_type(Segment::FREE);
+    AddCandidate("こうせい", "構成", segment);
+    AddCandidate("こうせい", "公正", segment);
+    for (int i = 0; i < 12; ++i) {
+      AddCandidate("こうせい", absl::StrCat("候補", i), segment);
+    }
+    FillT13Ns(CreateConversionRequest(session), &segments);
+    EXPECT_CALL(*converter, StartConversion(_, _))
+        .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+    ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::SPACE, &session, &command));
+
+    ZenzConversionResponse response;
+    response.ok = true;
+    response.generation = peer.pending_zenz_conversion().generation;
+    response.key = "こうせい";
+    response.value = "校正";
+    command.Clear();
+    ASSERT_TRUE(peer.ApplyZenzConversionResult(response, &command));
+    EXPECT_SINGLE_SEGMENT("校正", command);
+    ASSERT_TRUE(command.output().has_candidate_window());
+    const int zenz_id = command.output().candidate_window().candidate(0).id();
+    EXPECT_EQ(command.output().candidate_window().candidate(0).value(), "校正");
+    EXPECT_EQ(command.output().candidate_window().candidate(1).value(), "構成");
+    EXPECT_EQ(command.output().all_candidate_words().candidates(0).id(), zenz_id);
+    const int count = command.output().all_candidate_words().candidates_size();
+
+    // Space returns to Mozc, and Up can select Zenz again without losing it.
+    ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::SPACE, &session, &command));
+    EXPECT_SINGLE_SEGMENT("構成", command);
+    EXPECT_FALSE(command.output().zenz_conversion_applied());
+    EXPECT_EQ(command.output().all_candidate_words().candidates_size(), count);
+    ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::UP, &session, &command));
+    EXPECT_SINGLE_SEGMENT("校正", command);
+
+    ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::PAGE_DOWN, &session, &command));
+    const auto& page = command.output().candidate_window();
+    ASSERT_GT(page.candidate_size(), 0);
+    EXPECT_EQ(page.candidate(0).index(), page.page_size());
+    EXPECT_EQ(page.focused_index(), page.page_size());
+    for (int i = 1; i < page.candidate_size(); ++i) {
+      EXPECT_EQ(page.candidate(i).index(), page.candidate(i - 1).index() + 1);
+    }
+    ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::PAGE_UP, &session, &command));
+    EXPECT_SINGLE_SEGMENT("校正", command);
+
+    // Numeric shortcuts use the displayed IDs, including the inserted row.
+    ASSERT_TRUE(SendKey("2", &session, &command));
+    EXPECT_SINGLE_SEGMENT("構成", command);
+    ASSERT_TRUE(SendKey("1", &session, &command));
+    EXPECT_SINGLE_SEGMENT("校正", command);
+
+    commands::Command select;
+    SetSendCommandCommand(commands::SessionCommand::SELECT_CANDIDATE, &select);
+    select.mutable_input()->mutable_command()->set_id(0);
+    ASSERT_TRUE(session.SendCommand(&select));
+    EXPECT_SINGLE_SEGMENT("構成", select);
+    EXPECT_EQ(select.output().all_candidate_words().candidates(0).id(), zenz_id);
+    select.Clear();
+    SetSendCommandCommand(commands::SessionCommand::SELECT_CANDIDATE, &select);
+    select.mutable_input()->mutable_command()->set_id(zenz_id);
+    ASSERT_TRUE(session.SendCommand(&select));
+    EXPECT_SINGLE_SEGMENT("校正", select);
+
+    if (commit_method == 0) {
+      ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::ENTER, &session, &command));
+      EXPECT_RESULT("校正", command);
+    } else {
+      SetSendCommandCommand(commands::SessionCommand::SUBMIT_CANDIDATE, &command);
+      command.mutable_input()->mutable_command()->set_id(
+          commit_method == 1 ? zenz_id : 0);
+      ASSERT_TRUE(session.SendCommand(&command));
+      EXPECT_RESULT(commit_method == 1 ? "校正" : "構成", command);
+    }
+  }
+}
+
 TEST_F(SessionTest, DisabledZenzKeepsMozcNormalConversion) {
   MockEngine engine;
   std::shared_ptr<MockConverter> converter =

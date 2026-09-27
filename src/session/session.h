@@ -398,6 +398,7 @@ class Session {
   PendingDirectCommitLearning pending_direct_commit_learning_;
 
   uint32_t zenz_conversion_visible_generation_ = 0;
+  bool zenz_conversion_selected_ = true;
   std::string zenz_conversion_key_;
   std::string zenz_conversion_display_key_;
   std::string zenz_conversion_value_;
@@ -549,8 +550,6 @@ class Session {
   bool OutputZenzConversion(
       absl::string_view value,
       mozc::commands::Command* command);
-  bool RevertZenzConversionToMozc(
-      mozc::commands::Command* command);
   bool CommitZenzConversionResult(mozc::commands::Command* command);
 
   std::string BuildZenzFeedbackContextClass(
@@ -583,6 +582,9 @@ class Session {
       mozc::commands::SessionCommand::CommandType type);
 
   bool HasVisibleZenzConversion() const;
+  bool HasZenzConversionCandidate() const;
+  bool MoveZenzConversionCandidate(int direction, bool by_page);
+  void FillZenzConversionCandidateOutput(commands::Output* output) const;
   void SetPendingZenzFeedbackAccepted(
       absl::string_view key,
       absl::string_view context_class,
