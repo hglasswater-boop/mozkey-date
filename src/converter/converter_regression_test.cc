@@ -27,8 +27,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <cstddef>
 #include <memory>
-#include <string>
 
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
@@ -101,8 +101,7 @@ TEST_F(ConverterRegressionTest, WeekdayDatesWithProductDefaultFormats) {
   const ScopedClockMock clock(ParseTimeOrDie("2026-09-27T12:00:00Z"));
   std::unique_ptr<Engine> engine = EngineFactory::Create().value();
   std::shared_ptr<const ConverterInterface> converter = engine->GetConverter();
-  config::Config config;
-  config::ConfigHandler::GetDefaultConfig(&config);
+  const config::Config config = config::ConfigHandler::GetProductDefaultConfig();
   ASSERT_TRUE(config.date_conversion_custom_formats_initialized());
   ASSERT_GT(config.date_conversion_custom_formats_size(), 0);
 
