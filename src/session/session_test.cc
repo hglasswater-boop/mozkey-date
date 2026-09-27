@@ -1856,6 +1856,8 @@ TEST_F(SessionTest, ZenzMozcHistoryLearningIsDisabledInPasswordField) {
 #if defined(_WIN32)
 void SetPendingRejectedZenzFeedbackForTest(SessionTestPeer* session_peer) {
   session_peer->context_()->set_state(ImeContext::CONVERSION);
+  session_peer->context_()->mutable_composer()->InsertCharacterPreedit(
+      "かれはてんてきです");
   session_peer->zenz_conversion_visible_generation_() = 1;
   session_peer->zenz_conversion_key_() = "かれはてんてきです";
   session_peer->zenz_conversion_value_() = "彼は天敵です";
