@@ -1778,6 +1778,10 @@ TEST_F(SessionTest, ZenzMozcHistoryLearningRequiresFeedbackLearningEnabled) {
   Session session(engine);
   SessionTestPeer session_peer(session);
   InitSessionToPrecomposition(&session);
+  config::Config config;
+  config::ConfigHandler::GetDefaultConfig(&config);
+  config.set_use_zenz_feedback_learning(false);
+  session.SetConfig(config);
 
   EXPECT_FALSE(session_peer.MaybeLearnZenzCandidateToMozcHistory(
       "かれはてんきです", "彼は天気です"));
