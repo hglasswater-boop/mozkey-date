@@ -5844,10 +5844,14 @@ bool Session::MoveZenzConversionCandidate(int direction, bool by_page) {
   if (count == 0) {
     return false;
   }
-  const int step = by_page ? std::max<int>(1, output.candidate_window().page_size())
-                           : 1;
-  const int index = (static_cast<int>(candidates.focused_index()) +
-                     direction * (step % count) + count) % count;
+  const int current = candidates.focused_index();
+  int index = (current + direction + count) % count;
+  if (by_page) {
+    const int page_size = std::max<int>(1, output.candidate_window().page_size());
+    const int page_count = (count + page_size - 1) / page_size;
+    const int page = (current / page_size + direction + page_count) % page_count;
+    index = page * page_size;
+  }
   const int id = candidates.candidates(index).id();
   if (HasVisibleZenzConversion() && id != kZenzConversionCandidateId) {
     SetPendingZenzFeedbackRejected("conversion_command_after_zenz");

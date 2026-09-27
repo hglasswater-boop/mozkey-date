@@ -1407,6 +1407,12 @@ TEST_F(SessionTest, ZenzConversionCandidatesSupportSelectionNavigationAndCommit)
     }
     ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::PAGE_UP, &session, &command));
     EXPECT_SINGLE_SEGMENT("校正", command);
+    ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::PAGE_UP, &session, &command));
+    const int page_size = command.output().candidate_window().page_size();
+    EXPECT_EQ(command.output().candidate_window().focused_index(),
+              ((count - 1) / page_size) * page_size);
+    ASSERT_TRUE(SendSpecialKey(commands::KeyEvent::PAGE_DOWN, &session, &command));
+    EXPECT_SINGLE_SEGMENT("校正", command);
 
     // Numeric shortcuts use the displayed IDs, including the inserted row.
     ASSERT_TRUE(SendKey("2", &session, &command));
