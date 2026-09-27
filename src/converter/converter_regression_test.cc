@@ -28,15 +28,19 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
+#include <string>
 
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
+#include "base/clock_mock.h"
 #include "composer/composer.h"
+#include "config/config_handler.h"
 #include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "engine/engine.h"
 #include "engine/engine_factory.h"
 #include "protocol/commands.pb.h"
+#include "protocol/config.pb.h"
 #include "request/conversion_request.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
@@ -91,6 +95,63 @@ TEST_F(ConverterRegressionTest, Regression3323108) {
   EXPECT_TRUE(converter->ResizeSegment(&segments, default_request, 1, 2));
   EXPECT_EQ(segments.conversion_segments_size(), 2);
   EXPECT_EQ(segments.conversion_segment(1).key(), "きものをぬぐ");
+}
+
+TEST_F(ConverterRegressionTest, WeekdayDatesWithProductDefaultFormats) {
+  const ScopedClockMock clock(ParseTimeOrDie("2026-09-27T12:00:00Z"));
+  std::unique_ptr<Engine> engine = EngineFactory::Create().value();
+  std::shared_ptr<const ConverterInterface> converter = engine->GetConverter();
+  config::Config config;
+  config::ConfigHandler::GetDefaultConfig(&config);
+  ASSERT_TRUE(config.date_conversion_custom_formats_initialized());
+  ASSERT_GT(config.date_conversion_custom_formats_size(), 0);
+
+  struct TestCase {
+    const char* key;
+    const char* dates[3];
+  };
+  const TestCase cases[] = {
+      {"げつよう", {"2026/09/21", "2026/09/28", "2026/09/14"}},
+      {"げつようび", {"2026/09/21", "2026/09/28", "2026/09/14"}},
+      {"かよう", {"2026/09/22", "2026/09/29", "2026/09/15"}},
+      {"かようび", {"2026/09/22", "2026/09/29", "2026/09/15"}},
+      {"すいよう", {"2026/09/23", "2026/09/30", "2026/09/16"}},
+      {"すいようび", {"2026/09/23", "2026/09/30", "2026/09/16"}},
+      {"もくよう", {"2026/09/24", "2026/10/01", "2026/09/17"}},
+      {"もくようび", {"2026/09/24", "2026/10/01", "2026/09/17"}},
+      {"きんよう", {"2026/09/25", "2026/10/02", "2026/09/18"}},
+      {"きんようび", {"2026/09/25", "2026/10/02", "2026/09/18"}},
+      {"どよう", {"2026/09/26", "2026/10/03", "2026/09/19"}},
+      {"どようび", {"2026/09/26", "2026/10/03", "2026/09/19"}},
+      {"にちよう", {"2026/09/27", "2026/10/04", "2026/09/20"}},
+      {"にちようび", {"2026/09/27", "2026/10/04", "2026/09/20"}},
+  };
+  const char* descriptions[] = {"今週の日付", "来週の日付", "先週の日付"};
+  for (const TestCase& test : cases) {
+    SCOPED_TRACE(test.key);
+    composer::Composer composer;
+    composer.SetPreeditTextForTestOnly(test.key);
+    const ConversionRequest request = ConversionRequestBuilder()
+                                          .SetComposer(composer)
+                                          .SetConfig(config)
+                                          .Build();
+    Segments segments;
+    ASSERT_TRUE(converter->StartConversion(request, &segments));
+    ASSERT_EQ(segments.conversion_segments_size(), 1);
+    const Segment& segment = segments.conversion_segment(0);
+    for (size_t week = 0; week < 3; ++week) {
+      bool found = false;
+      for (size_t i = 0; i < segment.candidates_size(); ++i) {
+        const converter::Candidate& candidate = segment.candidate(i);
+        if (candidate.value == test.dates[week] &&
+            candidate.description == descriptions[week]) {
+          found = true;
+          break;
+        }
+      }
+      EXPECT_TRUE(found) << test.dates[week] << " " << descriptions[week];
+    }
+  }
 }
 
 }  // namespace
