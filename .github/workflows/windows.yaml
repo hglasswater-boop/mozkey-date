@@ -362,7 +362,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ""
         run: |
-          bazelisk test --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s --test_output=errors --test_filter=ZenzOutputValidatorTest.*:SessionTest.Zenz* //session:zenz_output_validator_test //session:session_test
+          bazelisk test --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s --test_output=errors --test_filter=ZenzOutputValidatorTest.*:SessionTest.*Zenz* //session:zenz_output_validator_test //session:session_test
 
       - name: Build x64 package
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'x64') }}

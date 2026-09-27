@@ -699,6 +699,344 @@ TEST(ZenzOutputValidatorTest,
             "う～ん");
 }
 
+class SessionTest : public testing::TestWithTempUserProfile {
+ protected:
+  void SetUp() override {
+    mobile_request_ = std::make_unique<Request>();
+    request_test_util::FillMobileRequest(mobile_request_.get());
+
+    mock_data_engine_ = MockDataEngineFactory::Create().value();
+
+    t13n_rewriter_ = std::make_unique<TransliterationRewriter>(
+        dictionary::PosMatcher(mock_data_manager_.GetPosMatcherData()));
+  }
+
+  void TearDown() override {}
+
+  bool InsertCharacterChars(const absl::string_view chars, Session* session,
+                            commands::Command* command) const {
+    constexpr uint32_t kNoModifiers = 0;
+    for (int i = 0; i < chars.size(); ++i) {
+      command->Clear();
+      command->mutable_input()->set_type(commands::Input::SEND_KEY);
+      commands::KeyEvent* key_event = command->mutable_input()->mutable_key();
+      key_event->set_key_code(chars[i]);
+      key_event->set_modifiers(kNoModifiers);
+      if (!session->SendKey(command)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void InsertCharacterCharsWithContext(const absl::string_view chars,
+                                       const commands::Context& context,
+                                       Session* session,
+                                       commands::Command* command) const {
+    constexpr uint32_t kNoModifiers = 0;
+    for (size_t i = 0; i < chars.size(); ++i) {
+      command->Clear();
+      command->mutable_input()->set_type(commands::Input::SEND_KEY);
+      *command->mutable_input()->mutable_context() = context;
+      commands::KeyEvent* key_event = command->mutable_input()->mutable_key();
+      key_event->set_key_code(chars[i]);
+      key_event->set_modifiers(kNoModifiers);
+      session->SendKey(command);
+    }
+  }
+
+  void InsertCharacterString(const absl::string_view key_strings,
+                             const absl::string_view chars, Session* session,
+                             commands::Command* command) const {
+    constexpr uint32_t kNoModifiers = 0;
+    auto chars_it = chars.begin();
+    for (const absl::string_view key : Utf8AsChars(key_strings)) {
+      // MSVC fails to compile if this is spelled as
+      // `CHECK_NE(chars_it, chars.end())`.
+      CHECK(chars_it != chars.end());
+      command->Clear();
+      command->mutable_input()->set_type(commands::Input::SEND_KEY);
+      commands::KeyEvent* key_event = command->mutable_input()->mutable_key();
+      key_event->set_key_code(*chars_it++);
+      key_event->set_modifiers(kNoModifiers);
+      key_event->set_key_string(key);
+      session->SendKey(command);
+    }
+  }
+
+  // set result for "あいうえお"
+  void SetAiueo(Segments* segments) {
+    segments->Clear();
+    Segment* segment;
+    converter::Candidate* candidate;
+
+    segment = segments->add_segment();
+    segment->set_key("あいうえお");
+    candidate = segment->add_candidate();
+    candidate->key = "あいうえお";
+    candidate->content_key = "あいうえお";
+    candidate->value = "あいうえお";
+    candidate = segment->add_candidate();
+    candidate->key = "あいうえお";
+    candidate->content_key = "あいうえお";
+    candidate->value = "アイウエオ";
+  }
+
+  void InitSessionToDirect(Session* session) {
+    InitSessionToPrecomposition(session);
+    commands::Command command;
+    session->IMEOff(&command);
+  }
+
+  void InitSessionToConversionWithAiueo(Session* session,
+                                        MockConverter* converter) {
+    InitSessionToPrecomposition(session);
+
+    commands::Command command;
+    InsertCharacterChars("aiueo", session, &command);
+    const ConversionRequest request = CreateConversionRequest(*session);
+    Segments segments;
+    SetAiueo(&segments);
+    FillT13Ns(request, &segments);
+    EXPECT_CALL(*converter, StartConversion(_, _))
+        .WillRepeatedly(DoAll(SetArgPointee<1>(segments), Return(true)));
+
+    command.Clear();
+    EXPECT_TRUE(session->Convert(&command));
+    EXPECT_EQ(session->context().state(), ImeContext::CONVERSION);
+    Mock::VerifyAndClearExpectations(converter);
+  }
+
+  std::shared_ptr<MockConverter> CreateEngineConverterMock(
+      MockEngine* mock_engine) {
+    auto mock_converter = std::make_shared<MockConverter>();
+    EXPECT_CALL(*mock_engine, CreateEngineConverter)
+        .WillRepeatedly([mock_converter]() {
+          return std::make_unique<engine::EngineConverter>(mock_converter);
+        });
+    return mock_converter;
+  }
+
+  void EnableZenzFeedbackLearning(Session* session) {
+    config::Config config;
+    config::ConfigHandler::GetDefaultConfig(&config);
+    config.set_use_zenz_feedback_learning(true);
+    session->SetConfig(config);
+  }
+
+  // TODO(matsuzakit): Set the session's state to PRECOMPOSITION.
+  // Though the method name asserts "ToPrecomposition",
+  // this method doesn't change session's state.
+  void InitSessionToPrecomposition(Session* session) {
+#ifdef _WIN32
+    // Session is created with direct mode on Windows
+    // Direct status
+    commands::Command command;
+    session->IMEOn(&command);
+#endif  // _WIN32
+    InitSessionWithRequest(session, commands::Request::default_instance());
+  }
+
+  void InitSessionToPrecomposition(Session* session,
+                                   const commands::Request& request) {
+#ifdef _WIN32
+    // Session is created with direct mode on Windows
+    // Direct status
+    commands::Command command;
+    session->IMEOn(&command);
+#endif  // _WIN32
+    InitSessionWithRequest(session, request);
+  }
+
+  void InitSessionWithRequest(Session* session,
+                              const commands::Request& request) {
+    session->SetRequest(request);
+    auto table = std::make_shared<composer::Table>();
+    table->InitializeWithRequestAndConfig(
+        request, config::ConfigHandler::DefaultConfig());
+    session->SetTable(table);
+  }
+
+  // set result for "like"
+  void SetLike(Segments* segments) {
+    Segment* segment;
+    converter::Candidate* candidate;
+
+    segments->Clear();
+    segment = segments->add_segment();
+
+    segment->set_key("ぃ");
+    candidate = segment->add_candidate();
+    candidate->value = "ぃ";
+
+    candidate = segment->add_candidate();
+    candidate->value = "ィ";
+
+    segment = segments->add_segment();
+    segment->set_key("け");
+    candidate = segment->add_candidate();
+    candidate->value = "家";
+    candidate = segment->add_candidate();
+    candidate->value = "け";
+  }
+
+  void FillT13Ns(const ConversionRequest& request, Segments* segments) {
+    t13n_rewriter_->Rewrite(request, segments);
+  }
+
+  ConversionRequest CreateConversionRequest(const Session& session) {
+    const ImeContext& context = session.context();
+    return ConversionRequestBuilder()
+        .SetComposer(context.composer())
+        .SetRequestView(context.GetRequest())
+        .SetContextView(context.client_context())
+        .SetConfigView(context.GetConfig())
+        .Build();
+  }
+
+  void SetupMockForReverseConversion(const absl::string_view kanji,
+                                     const absl::string_view hiragana,
+                                     MockConverter* converter) {
+    // Set up Segments for reverse conversion.
+    Segments reverse_segments;
+    Segment* segment;
+    segment = reverse_segments.add_segment();
+    segment->set_key(kanji);
+    converter::Candidate* candidate;
+    candidate = segment->add_candidate();
+    // For reverse conversion, key is the original kanji string.
+    candidate->key = kanji;
+    candidate->value = hiragana;
+    EXPECT_CALL(*converter, StartReverseConversion(_, _))
+        .WillOnce(DoAll(SetArgPointee<0>(reverse_segments), Return(true)));
+    // Set up Segments for forward conversion.
+    Segments segments;
+    segment = segments.add_segment();
+    segment->set_key(hiragana);
+    candidate = segment->add_candidate();
+    candidate->key = hiragana;
+    candidate->value = kanji;
+    EXPECT_CALL(*converter, StartConversion(_, _))
+        .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+  }
+
+  void SetupCommandForReverseConversion(const absl::string_view text,
+                                        commands::Input* input) {
+    input->Clear();
+    input->set_type(commands::Input::SEND_COMMAND);
+    input->mutable_command()->set_type(
+        commands::SessionCommand::CONVERT_REVERSE);
+    input->mutable_command()->set_text(text);
+  }
+
+  void SetupZeroQuerySuggestionReady(bool enable, Session* session,
+                                     commands::Request* request,
+                                     MockConverter* mock_converter) {
+    InitSessionToPrecomposition(session);
+
+    // Enable zero query suggest.
+    request->set_zero_query_suggestion(enable);
+    session->SetRequest(*request);
+
+    // Type "google".
+    commands::Command command;
+    InsertCharacterChars("google", session, &command);
+
+    {
+      // Set up a mock conversion result.
+      Segments segments;
+      Segment* segment;
+      segment = segments.add_segment();
+      segment->set_key("google");
+      segment->add_candidate()->value = "GOOGLE";
+      EXPECT_CALL(*mock_converter, StartConversion(_, _))
+          .WillRepeatedly(DoAll(SetArgPointee<1>(segments), Return(true)));
+    }
+    command.Clear();
+    session->Convert(&command);
+
+    {
+      // Set up a mock suggestion result.
+      Segments segments;
+      Segment* segment;
+      segment = segments.add_segment();
+      segment->set_key("");
+      AddCandidate("search", "search", segment);
+      AddCandidate("input", "input", segment);
+      EXPECT_CALL(*mock_converter, StartPrediction(_, _))
+          .WillRepeatedly(DoAll(SetArgPointee<1>(segments), Return(true)));
+    }
+
+    {
+      // Set up a mock prediction result.
+      Segments segments;
+      Segment* segment;
+      segment = segments.add_segment();
+      segment->set_key("");
+      AddCandidate("search", "search", segment);
+      AddCandidate("input", "input", segment);
+      EXPECT_CALL(*mock_converter,
+                  StartPredictionWithPreviousSuggestion(_, _, _))
+          .WillRepeatedly(DoAll(SetArgPointee<2>(segments), Return(true)));
+      EXPECT_CALL(*mock_converter, PrependCandidates(_, _, _))
+          .WillRepeatedly(SetArgPointee<2>(segments));
+    }
+  }
+
+  void SetupZeroQuerySuggestion(Session* session, commands::Request* request,
+                                commands::Command* command,
+                                MockConverter* converter) {
+    SetupZeroQuerySuggestionReady(true, session, request, converter);
+    command->Clear();
+    session->Commit(command);
+  }
+
+  void SetUndoContext(Session* session, MockConverter* converter) {
+    commands::Command command;
+    Segments segments;
+
+    {  // Create segments
+      InsertCharacterChars("aiueo", session, &command);
+      SetAiueo(&segments);
+      // Don't use FillT13Ns(). It makes platform dependent segments.
+      // TODO(hsumita): Makes FillT13Ns() independent from platforms.
+      converter::Candidate* candidate;
+      candidate = segments.mutable_segment(0)->add_candidate();
+      candidate->value = "aiueo";
+      candidate = segments.mutable_segment(0)->add_candidate();
+      candidate->value = "AIUEO";
+    }
+
+    {  // Commit the composition to make an undo context.
+      EXPECT_CALL(*converter, StartConversion(_, _))
+          .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+      command.Clear();
+      session->Convert(&command);
+      EXPECT_FALSE(command.output().has_result());
+      EXPECT_PREEDIT("あいうえお", command);
+
+      EXPECT_CALL(*converter, CommitSegmentValue(_, _, _))
+          .WillOnce(DoAll(SetArgPointee<0>(segments), Return(true)));
+      command.Clear();
+
+      session->Commit(&command);
+      EXPECT_FALSE(command.output().has_preedit());
+      EXPECT_RESULT("あいうえお", command);
+      Mock::VerifyAndClearExpectations(converter);
+    }
+  }
+
+  // IMPORTANT: Use std::unique_ptr and instantiate an object in SetUp() method
+  //    if the target object should be initialized *AFTER* global settings
+  //    such as user profile dir or global config are set up for unit test.
+  //    If you directly define a variable here without std::unique_ptr, its
+  //    constructor will be called *BEFORE* SetUp() is called.
+  std::unique_ptr<Engine> mock_data_engine_;
+  std::unique_ptr<TransliterationRewriter> t13n_rewriter_;
+  std::unique_ptr<Request> mobile_request_;
+  const testing::MockDataManager mock_data_manager_;
+};
+
 TEST_F(SessionTest, TestOfTestForSetup) {
   config::Config config;
   config::ConfigHandler::GetDefaultConfig(&config);
@@ -741,7 +1079,7 @@ TEST_F(SessionTest,
   InitSessionToPrecomposition(&session);
 
   std::atomic<bool> inference_completed = false;
-  SessionTestPeer(session).zenz_conversion_service() =
+  SessionTestPeer(session).zenz_conversion_service_() =
       std::make_unique<ZenzConversionService>(
           std::make_unique<FailingZenzClient>(&inference_completed));
 
@@ -848,7 +1186,7 @@ TEST_F(SessionTest, ZenzSuggestionIsSelectableAndCommitsThroughCandidateFlow) {
   InitSessionToPrecomposition(&session);
 
   std::atomic<bool> inference_completed = false;
-  SessionTestPeer(session).zenz_conversion_service() =
+  SessionTestPeer(session).zenz_conversion_service_() =
       std::make_unique<ZenzConversionService>(
           std::make_unique<SuccessfulZenzClient>("愛上尾",
                                                  &inference_completed));
@@ -938,7 +1276,7 @@ TEST_F(SessionTest, ZenzUnchangedReadingKeepsSpaceConversionAndCommit) {
   session.SetConfig(config);
   session.SetKeyMapManager(std::make_shared<keymap::KeyMapManager>(config));
   InitSessionToPrecomposition(&session);
-  SessionTestPeer(session).zenz_conversion_service() =
+  SessionTestPeer(session).zenz_conversion_service_() =
       std::make_unique<ZenzConversionService>(
           std::make_unique<FailingZenzClient>(&inference_completed));
 
@@ -967,7 +1305,7 @@ TEST_F(SessionTest, ZenzUnchangedReadingKeepsSpaceConversionAndCommit) {
   SessionTestPeer peer(session);
   ZenzConversionResponse response;
   response.ok = true;
-  response.generation = peer.pending_zenz_conversion().generation;
+  response.generation = peer.pending_zenz_conversion_().generation;
   response.key = "げんき";
   response.value = "げんき";
   command.Clear();
@@ -1003,7 +1341,7 @@ TEST_F(SessionTest, ZenzConversionCandidatesSupportSelectionNavigationAndCommit)
     session.SetKeyMapManager(std::make_shared<keymap::KeyMapManager>(config));
     InitSessionToPrecomposition(&session);
     SessionTestPeer peer(session);
-    peer.zenz_conversion_service() = std::make_unique<ZenzConversionService>(
+    peer.zenz_conversion_service_() = std::make_unique<ZenzConversionService>(
         std::make_unique<FailingZenzClient>(&inference_completed));
 
     commands::Command command;
@@ -1024,7 +1362,7 @@ TEST_F(SessionTest, ZenzConversionCandidatesSupportSelectionNavigationAndCommit)
 
     ZenzConversionResponse response;
     response.ok = true;
-    response.generation = peer.pending_zenz_conversion().generation;
+    response.generation = peer.pending_zenz_conversion_().generation;
     response.key = "こうせい";
     response.value = "校正";
     command.Clear();
@@ -1103,7 +1441,7 @@ TEST_F(SessionTest, ZenzConversionCandidateCommitsWholeMultiSegmentReading) {
   session.SetKeyMapManager(std::make_shared<keymap::KeyMapManager>(config));
   InitSessionToPrecomposition(&session);
   SessionTestPeer peer(session);
-  peer.zenz_conversion_service() = std::make_unique<ZenzConversionService>(
+  peer.zenz_conversion_service_() = std::make_unique<ZenzConversionService>(
       std::make_unique<FailingZenzClient>(&inference_completed));
 
   commands::Command command;
@@ -1125,7 +1463,7 @@ TEST_F(SessionTest, ZenzConversionCandidateCommitsWholeMultiSegmentReading) {
 
   ZenzConversionResponse response;
   response.ok = true;
-  response.generation = peer.pending_zenz_conversion().generation;
+  response.generation = peer.pending_zenz_conversion_().generation;
   response.key = "きょうはげんき";
   response.value = "今日は元氣";
   // Reuse the initial output to cover immediate feedback/output rebuilding.
@@ -1179,7 +1517,7 @@ TEST_F(SessionTest, DisabledZenzKeepsMozcNormalConversion) {
   EXPECT_FALSE(command.output().zenz_conversion_pending());
   ASSERT_TRUE(command.output().has_candidate_window());
   EXPECT_GT(command.output().candidate_window().candidate_size(), 0);
-  EXPECT_EQ(SessionTestPeer(session).zenz_conversion_service(), nullptr);
+  EXPECT_EQ(SessionTestPeer(session).zenz_conversion_service_(), nullptr);
 }
 
 TEST_F(SessionTest, KeymapCommandSequenceCommitAndImeOffFromComposition) {
