@@ -1406,7 +1406,11 @@ bool Session::SendCommand(commands::Command* command) {
       result = DoNothing(command);
       break;
   }
-  if (context_->state() != ImeContext::CONVERSION) {
+  // Suggestion callbacks use the same asynchronous service as conversion.
+  // Clearing conversion state here would cancel the suggestion just submitted
+  // by ApplyZenzSuggestion, or discard its result before the next callback.
+  if (context_->state() != ImeContext::CONVERSION &&
+      session_command.type() != commands::SessionCommand::APPLY_ZENZ_SUGGESTION) {
     ClearZenzConversionState();
   }
 
