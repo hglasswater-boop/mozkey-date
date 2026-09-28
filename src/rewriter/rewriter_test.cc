@@ -32,8 +32,10 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/log/check.h"
+#include "base/clock_mock.h"
 #include "converter/attribute.h"
 #include "converter/candidate.h"
 #include "converter/segments.h"
@@ -228,6 +230,78 @@ TEST_F(RewriterTest, EmptyInitializedDateFormatListRemovesDateCandidates) {
   EXPECT_FALSE(HasCandidateValue(*seg, "2026/09/08"));
   EXPECT_FALSE(HasCandidateValue(*seg, "2026年9月8日"));
   EXPECT_TRUE(HasCandidateValue(*seg, "keep-me"));
+}
+
+TEST_F(RewriterTest, WeekdayDatesSurviveConfiguredFormatFiltering) {
+  struct TestCase {
+    const char* now;
+    const char* key;
+    const char* value;
+    std::vector<std::string> expected;
+  };
+  const TestCase cases[] = {
+      {"2026-09-25T12:00:00Z", "きんよう", "金曜",
+       {"2026/9/25(金)", "2026年9月25日(金曜日)",
+        "2026/10/2(金)", "2026年10月2日(金曜日)",
+        "2026/9/18(金)", "2026年9月18日(金曜日)"}},
+      {"2026-09-25T12:00:00Z", "きんようび", "金曜日",
+       {"2026/9/25(金)", "2026年9月25日(金曜日)",
+        "2026/10/2(金)", "2026年10月2日(金曜日)",
+        "2026/9/18(金)", "2026年9月18日(金曜日)"}},
+      {"2026-12-31T12:00:00Z", "げつよう", "月曜",
+       {"2026/12/28(月)", "2026年12月28日(月曜日)",
+        "2027/1/4(月)", "2027年1月4日(月曜日)",
+        "2026/12/21(月)", "2026年12月21日(月曜日)"}},
+      {"2026-12-31T12:00:00Z", "げつようび", "月曜日",
+       {"2026/12/28(月)", "2026年12月28日(月曜日)",
+        "2027/1/4(月)", "2027年1月4日(月曜日)",
+        "2026/12/21(月)", "2026年12月21日(月曜日)"}},
+      {"2026-09-27T12:00:00Z", "にちよう", "日曜",
+       {"2026/9/27(日)", "2026年9月27日(日曜日)",
+        "2026/10/4(日)", "2026年10月4日(日曜日)",
+        "2026/9/20(日)", "2026年9月20日(日曜日)"}},
+      {"2026-09-27T12:00:00Z", "にちようび", "日曜日",
+       {"2026/9/27(日)", "2026年9月27日(日曜日)",
+        "2026/10/4(日)", "2026年10月4日(日曜日)",
+        "2026/9/20(日)", "2026年9月20日(日曜日)"}},
+  };
+  config::Config config;
+  config.set_date_conversion_custom_formats_initialized(true);
+  config.add_date_conversion_custom_formats(
+      "{YEAR}/{MONTH_NOZERO}/{DATE_NOZERO}({WEEKDAY})");
+  config.add_date_conversion_custom_formats(
+      "{YEAR}年{MONTH_NOZERO}月{DATE_NOZERO}日({WEEKDAY_LONG})");
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetConfig(config).Build();
+
+  for (const TestCase& test : cases) {
+    SCOPED_TRACE(test.key);
+    const ScopedClockMock clock(ParseTimeOrDie(test.now));
+    Segments segments;
+    Segment* segment = segments.add_segment();
+    segment->set_key(test.key);
+    converter::Candidate* ordinary = segment->add_candidate();
+    ordinary->key = ordinary->content_key = test.key;
+    ordinary->value = ordinary->content_value = test.value;
+
+    ASSERT_TRUE(GetRewriter()->Rewrite(request, &segments));
+    std::vector<std::string> values;
+    std::vector<std::string> descriptions;
+    for (size_t i = 0; i < segment->candidates_size(); ++i) {
+      const converter::Candidate& candidate = segment->candidate(i);
+      if (candidate.description.find("日付") == std::string::npos) {
+        continue;
+      }
+      values.push_back(candidate.value);
+      descriptions.push_back(candidate.description);
+      EXPECT_EQ(candidate.content_value, candidate.value);
+    }
+    EXPECT_EQ(values, test.expected);
+    EXPECT_EQ(descriptions, (std::vector<std::string>{
+        "今週の日付", "今週の日付", "来週の日付", "来週の日付",
+        "先週の日付", "先週の日付"}));
+    EXPECT_TRUE(HasCandidateValue(*segment, test.value));
+  }
 }
 
 }  // namespace mozc

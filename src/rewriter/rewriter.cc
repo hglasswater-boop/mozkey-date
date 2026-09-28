@@ -29,6 +29,7 @@
 
 #include "rewriter/rewriter.h"
 
+#include <map>
 #include <memory>
 #include <string>
 
@@ -200,14 +201,40 @@ bool ParseCanonicalDate(const std::string& value, int* year, int* month,
   return true;
 }
 
-bool FindCanonicalDate(const Segment& segment, int* year, int* month,
-                       int* day) {
+struct CalendarDate {
+  int year;
+  int month;
+  int day;
+};
+
+std::map<std::string, CalendarDate> FindCanonicalDates(const Segment& segment) {
+  std::map<std::string, CalendarDate> dates;
   for (size_t i = 0; i < segment.candidates_size(); ++i) {
-    if (ParseCanonicalDate(segment.candidate(i).value, year, month, day)) {
-      return true;
+    const converter::Candidate& candidate = segment.candidate(i);
+    CalendarDate date;
+    if (ParseCanonicalDate(candidate.value, &date.year, &date.month, &date.day)) {
+      // DateRewriter gives each target date its own description. In particular,
+      // weekday inputs contain separate current, next, and previous week groups.
+      // Save every group before any canonical candidate is filtered out.
+      dates.try_emplace(candidate.description, date);
     }
   }
-  return false;
+  return dates;
+}
+
+const CalendarDate* FindSingleDate(
+    const std::map<std::string, CalendarDate>& dates) {
+  const CalendarDate* result = nullptr;
+  for (const auto& entry : dates) {
+    const CalendarDate& date = entry.second;
+    if (result != nullptr &&
+        (result->year != date.year || result->month != date.month ||
+         result->day != date.day)) {
+      return nullptr;
+    }
+    result = &date;
+  }
+  return result;
 }
 
 int WeekdaySundayFirst(int year, int month, int day) {
@@ -327,8 +354,9 @@ bool IsDateCandidateDescription(const std::string& description) {
 // DateRewriter intentionally keeps the legacy format parser small.  This
 // post-processor expands mozkey-date's additional date-format tokens after
 // DateRewriter has generated both custom and canonical date candidates.  The
-// canonical YYYY/MM/DD candidate supplies the actual target date, so the same
-// logic works for today/tomorrow as well as explicit inputs such as 9/8.
+// canonical YYYY/MM/DD candidate in each description group supplies its target
+// date. Weekday inputs can therefore keep all three weeks independently, just
+// as today/tomorrow and explicit inputs such as 9/8 keep their own target date.
 //
 // Once the date-format settings are initialized, this rewriter also removes
 // date candidates that are not represented by the ordered list. This makes the
@@ -354,40 +382,41 @@ class CustomDateFormatTokenRewriter final : public RewriterInterface {
          segment_index < segments->conversion_segments_size();
          ++segment_index) {
       Segment* segment = segments->mutable_conversion_segment(segment_index);
-      int year = 0;
-      int month = 0;
-      int day = 0;
-      if (!FindCanonicalDate(*segment, &year, &month, &day)) {
+      const std::map<std::string, CalendarDate> dates =
+          FindCanonicalDates(*segment);
+      if (dates.empty()) {
         continue;
       }
 
-      for (size_t candidate_index = 0;
-           candidate_index < segment->candidates_size(); ++candidate_index) {
-        converter::Candidate* candidate =
-            segment->mutable_candidate(candidate_index);
-        const std::string original_value = candidate->value;
-        if (!ExpandDateFormatTokens(year, month, day, &candidate->value)) {
-          continue;
-        }
-        if (candidate->content_value == original_value) {
-          candidate->content_value = candidate->value;
-        }
-        modified = true;
-      }
-
-      if (!CanFilterToConfiguredDateFormats(request.config())) {
-        continue;
-      }
-
+      // Earlier rewriters can annotate legacy, externally supplied candidates
+      // with different descriptions. A single unambiguous target date remains
+      // usable for those candidates, but must never mix multiple weekday dates.
+      const CalendarDate* single_date = FindSingleDate(dates);
+      const bool filter = CanFilterToConfiguredDateFormats(request.config());
       for (size_t candidate_index = segment->candidates_size();
            candidate_index > 0; --candidate_index) {
         const size_t index = candidate_index - 1;
-        const converter::Candidate& candidate = segment->candidate(index);
-        if (!IsDateCandidateDescription(candidate.description)) {
+        converter::Candidate* candidate =
+            segment->mutable_candidate(index);
+        const auto it = dates.find(candidate->description);
+        const CalendarDate* date =
+            it == dates.end() ? single_date : &it->second;
+        if (date == nullptr) {
           continue;
         }
-        if (IsConfiguredDateValue(request.config(), year, month, day,
-                                  candidate.value)) {
+        const std::string original_value = candidate->value;
+        if (ExpandDateFormatTokens(date->year, date->month, date->day,
+                                   &candidate->value)) {
+          if (candidate->content_value == original_value) {
+            candidate->content_value = candidate->value;
+          }
+          modified = true;
+        }
+        if (!filter || !IsDateCandidateDescription(candidate->description)) {
+          continue;
+        }
+        if (IsConfiguredDateValue(request.config(), date->year, date->month,
+                                  date->day, candidate->value)) {
           continue;
         }
         segment->erase_candidate(static_cast<int>(index));

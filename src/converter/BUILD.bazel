@@ -609,10 +609,13 @@ mozc_cc_test(
     deps = [
         ":converter_interface",
         ":segments",
+        "//base:clock_mock",
         "//composer",
+        "//config:config_handler",
         "//engine",
         "//engine:engine_factory",
         "//protocol:commands_cc_proto",
+        "//protocol:config_cc_proto",
         "//request:conversion_request",
         "//testing:gunit_main",
         "//testing:mozctest",

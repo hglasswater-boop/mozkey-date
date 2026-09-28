@@ -340,13 +340,13 @@ jobs:
       # Keep the disk cache itself bounded because GitHub Actions cache storage
       # is shared with Qt and dependency caches. Zero idle delay lets Bazel run
       # cache GC between the test and package invocations on ephemeral runners.
-      - name: Test date rewriter
+      - name: Test date conversion pipeline
         shell: cmd
         working-directory: .\src
         env:
           ANDROID_NDK_HOME: ""
         run: |
-          bazelisk test --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s //rewriter:date_rewriter_test
+          bazelisk test --config release_build --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=4G --experimental_disk_cache_gc_idle_delay=0s --test_output=errors //rewriter:date_rewriter_test //rewriter:rewriter_test //converter:converter_regression_test
 
       - name: Test English word dictionary
         shell: cmd
