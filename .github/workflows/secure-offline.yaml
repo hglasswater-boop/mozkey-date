@@ -8,7 +8,19 @@ on:
       - "fix/**"
       - "harden/**"
       - "chore/**"
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/workflows/windows.yaml"
+      - ".github/workflows/release-windows.yml"
+      - ".github/workflows-disabled/**"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/workflows/windows.yaml"
+      - ".github/workflows/release-windows.yml"
+      - ".github/workflows-disabled/**"
   workflow_dispatch:
 
 permissions:
@@ -39,7 +51,7 @@ jobs:
   config_tests:
     name: Offline config tests
     runs-on: windows-2025
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -48,17 +60,48 @@ jobs:
           submodules: false
           persist-credentials: false
 
+      - name: Set cache date
+        shell: pwsh
+        run: |
+          $tokyo = [System.TimeZoneInfo]::FindSystemTimeZoneById("Tokyo Standard Time")
+          $today = [System.TimeZoneInfo]::ConvertTimeFromUtc(
+            [DateTime]::UtcNow,
+            $tokyo
+          ).ToString("yyyy-MM-dd")
+          "SECURE_CACHE_DATE=$today" >> $env:GITHUB_ENV
+
+      # Share the same dependency download cache as the normal x64 build.
       - name: Restore update_deps cache
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: src/third_party_cache
-          key: update_deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
+          key: update_deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/build_tools/update_deps.py') }}
+          restore-keys: |
+            update_deps-${{ runner.os }}-${{ runner.arch }}-
+            update_deps-${{ runner.os }}-
 
-      - name: Install dependencies
+      # Config tests do not use Qt, WiX packaging, or Ninja. Keep the compiler
+      # and MSYS preparation, but skip prerequisites that cannot affect these
+      # two small C++ tests.
+      - name: Install test dependencies
         shell: cmd
         working-directory: .\src
         run: |
-          python build_tools/update_deps.py
+          python build_tools/update_deps.py --noqt --nowix --noninja
+
+      # Keep a small config-test cache of its own. On the first run it can seed
+      # from the normal Windows build cache on the default branch; after that,
+      # test-specific compile actions are reused directly.
+      - name: Restore offline-test Bazel cache
+        id: secure-bazel-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: src/.bazel-disk-cache
+          key: secure-bazel-${{ runner.os }}-${{ runner.arch }}-v1-${{ env.SECURE_CACHE_DATE }}-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}
+          restore-keys: |
+            secure-bazel-${{ runner.os }}-${{ runner.arch }}-v1-
+            bazel-${{ runner.os }}-${{ runner.arch }}-v2-
+            bazel-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('src/MODULE.bazel', 'src/.bazelrc', 'src/build_defs.bzl') }}-
 
       - name: Run offline config tests
         shell: cmd
@@ -66,7 +109,14 @@ jobs:
         env:
           ANDROID_NDK_HOME: ""
         run: |
-          bazelisk test --config oss_windows --config release_build --test_output=errors //config:stats_config_util_test //config:config_handler_test
+          bazelisk test --config oss_windows --config release_build --test_output=errors --disk_cache=.bazel-disk-cache --experimental_disk_cache_gc_max_size=1G --experimental_disk_cache_gc_idle_delay=0s //config:stats_config_util_test //config:config_handler_test
+
+      - name: Save offline-test Bazel cache
+        if: steps.secure-bazel-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: src/.bazel-disk-cache
+          key: ${{ steps.secure-bazel-cache.outputs.cache-primary-key }}
 
   binary_check:
     name: Binary no-network check
